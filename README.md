@@ -16,12 +16,19 @@ pipenv install
 
 ## Cau hinh moi truong (MongoDB Atlas)
 
-File `.env`:
+Tao file `.env` tu mau:
+
+```powershell
+copy .env.example .env
+```
+
+Noi dung mau trong `.env.example`:
 
 ```env
 APP_NAME="Medical Management API"
-MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/?retryWrites=true&w=majority&appName=<app-name>"
-MONGODB_DB_NAME="medical_management"
+MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/<db-name>?retryWrites=true&w=majority&appName=<app-name>"
+# Optional: set this only if you want to override db name parsed from MONGODB_URI
+MONGODB_DB_NAME=""
 ```
 
 Luu y:
