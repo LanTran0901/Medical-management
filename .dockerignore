@@ -1,0 +1,9 @@
+.git
+.vscode
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+mongo_data
