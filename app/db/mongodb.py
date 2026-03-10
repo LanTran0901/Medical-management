@@ -9,7 +9,7 @@ db: AsyncIOMotorDatabase | None = None
 async def connect_to_mongo() -> None:
     global client, db
     client = AsyncIOMotorClient(settings.mongodb_uri)
-    db = client[settings.mongodb_db_name]
+    db = client[settings.resolved_mongodb_db_name]
 
 
 async def close_mongo_connection() -> None:

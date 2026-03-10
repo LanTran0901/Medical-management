@@ -14,15 +14,19 @@ Du an FastAPI toi gian de test Python voi `pipenv`.
 pipenv install
 ```
 
-## Cau hinh moi truong
+## Cau hinh moi truong (MongoDB Atlas)
 
 File `.env`:
 
 ```env
 APP_NAME="Medical Management API"
-MONGODB_URI="mongodb://localhost:27017"
+MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/?retryWrites=true&w=majority&appName=<app-name>"
 MONGODB_DB_NAME="medical_management"
 ```
+
+Luu y:
+- Lay connection string trong Atlas: `Database > Connect > Drivers`.
+- Neu password co ky tu dac biet (`@`, `#`, `%`...), can URL-encode truoc khi gan vao URI.
 
 ## Chay ung dung
 
@@ -36,7 +40,7 @@ Hoac:
 pipenv run uvicorn app.main:app --reload
 ```
 
-## Chay bang Docker
+## Chay bang Docker (chi app, ket noi Atlas)
 
 ```powershell
 docker compose up -d --build
@@ -46,12 +50,6 @@ Stop:
 
 ```powershell
 docker compose down
-```
-
-Xoa ca volume MongoDB:
-
-```powershell
-docker compose down -v
 ```
 
 ## Kiem tra

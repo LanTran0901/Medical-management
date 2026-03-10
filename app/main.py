@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.routes.health import router as health_router
+from app.routes.health import router as health_router
 from app.core.config import settings
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
 
