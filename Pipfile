@@ -5,11 +5,21 @@ name = "pypi"
 
 [packages]
 fastapi = "*"
-uvicorn = "*"
+uvicorn = {extras = ["standard"], version = "*"}
 motor = "*"
 pydantic-settings = "*"
+# PostgreSQL async
+sqlalchemy = {extras = ["asyncio"], version = "*"}
+asyncpg = "*"
+greenlet = "*"
+# Alembic migrations (uses psycopg2 sync engine internally)
+alembic = "*"
+psycopg2-binary = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.12"
+
+[scripts]
+start = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"

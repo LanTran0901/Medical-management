@@ -1,15 +1,47 @@
-version: "3.9"
+x-api-image: &api-image
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: medical-management-api:latest
 
 services:
+  # ── Alembic Migration ───────────────────────────────────────────────────────
+  migrate:
+    <<: *api-image
+    container_name: medical-migrate
+    restart: "no"
+    env_file:
+      - .env
+    working_dir: /app/app
+    entrypoint: []
+    command: >
+      sh -c "echo '[MIGRATE] Running Alembic...' &&
+             alembic --config alembic.ini upgrade head &&
+             echo '[MIGRATE] Done.'"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    networks:
+      - medical-net
+
+  # ── API ─────────────────────────────────────────────────────────────────────
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *api-image
     container_name: medical_api
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     env_file:
       - .env
-    volumes:
-      - .:/app
-    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    networks:
+      - medical-net
+
+networks:
+  medical-net:
+    driver: bridge
