@@ -29,6 +29,10 @@ APP_NAME="Medical Management API"
 MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/<db-name>?retryWrites=true&w=majority&appName=<app-name>"
 # Optional: set this only if you want to override db name parsed from MONGODB_URI
 MONGODB_DB_NAME=""
+GROQ_API_KEY="gsk_xxx"
+GROQ_MODEL="llama-3.1-8b-instant"
+RAG_KNOWLEDGE_COLLECTION="rag_knowledge"
+RAG_CHAT_HISTORY_COLLECTION="rag_chat_history"
 ```
 
 Luu y:
@@ -64,3 +68,23 @@ docker compose down
 - API root: `http://127.0.0.1:8080/`
 - Health check: `http://127.0.0.1:8080/health`
 - Swagger UI: `http://127.0.0.1:8080/docs`
+
+## Test luong RAG
+
+Endpoint:
+
+`POST /rag/chat`
+
+Body:
+
+```json
+{
+  "session_id": "demo-session-1",
+  "question": "Quy trinh tiep nhan benh nhan ngoai tru?"
+}
+```
+
+Giai doan hien tai:
+- Chua bat buoc co knowledge.
+- Neu collection `rag_knowledge` trong Mongo trong, he thong van tra loi bang LLM.
+- Moi cau hoi/tra loi se duoc luu vao `rag_chat_history`.
