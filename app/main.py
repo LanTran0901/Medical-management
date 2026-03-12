@@ -5,6 +5,8 @@ from sqlalchemy import text
 
 from app.api.health_router import router as health_router
 from app.api.user_router import router as user_router
+from app.routes.health import router as health_router
+from app.routes.rag import router as rag_router
 from app.core.config import settings
 from app.infrastructure.config.database.mongodb.connection import (
     close_mongo_connection,
@@ -33,6 +35,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(user_router)
+app.include_router(rag_router)
 
 
 @app.get("/")
