@@ -5,10 +5,11 @@ WORKDIR /app
 RUN pip install --no-cache-dir pipenv
 
 COPY Pipfile Pipfile.lock ./
-RUN pipenv sync --system --deploy
+
+RUN pipenv install --system --deploy --ignore-pipfile
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
