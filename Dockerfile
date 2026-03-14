@@ -10,12 +10,10 @@ WORKDIR /app
 RUN pip install --no-cache-dir pipenv
 
 COPY Pipfile Pipfile.lock ./
-RUN pipenv install --system --skip-lock
+
+RUN pipenv install --system --deploy --ignore-pipfile
 
 COPY . .
-
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
-USER appuser
 
 EXPOSE 8080
 

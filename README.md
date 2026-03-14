@@ -35,6 +35,11 @@ APP_NAME="Medical Management API"
 # MongoDB (document store)
 MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/<db-name>?retryWrites=true&w=majority&appName=<app-name>"
 MONGODB_DB_NAME=""
+GROQ_API_KEY="gsk_xxx"
+GROQ_MODEL="llama-3.1-8b-instant"
+RAG_KNOWLEDGE_COLLECTION="rag_knowledge"
+RAG_CHAT_HISTORY_COLLECTION="rag_chat_history"
+```
 
 # PostgreSQL (relational store)
 POSTGRES_HOST=localhost
@@ -103,3 +108,22 @@ docker compose down
 ## Kien truc
 
 Xem [CLEAN_ARCHITECTURE.md](./CLEAN_ARCHITECTURE.md)
+## Test luong RAG
+
+Endpoint:
+
+`POST /rag/chat`
+
+Body:
+
+```json
+{
+  "session_id": "demo-session-1",
+  "question": "Quy trinh tiep nhan benh nhan ngoai tru?"
+}
+```
+
+Giai doan hien tai:
+- Chua bat buoc co knowledge.
+- Neu collection `rag_knowledge` trong Mongo trong, he thong van tra loi bang LLM.
+- Moi cau hoi/tra loi se duoc luu vao `rag_chat_history`.
