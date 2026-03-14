@@ -18,9 +18,6 @@ services:
       sh -c "echo '[MIGRATE] Running Alembic...' &&
              alembic --config alembic.ini upgrade head &&
              echo '[MIGRATE] Done.'"
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     networks:
       - medical-net
 
@@ -36,9 +33,6 @@ services:
       - "8080:8080"
     env_file:
       - .env
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     networks:
       - medical-net
 
