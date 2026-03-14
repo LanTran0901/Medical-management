@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 from langgraph.graph import END, START, StateGraph
 
 from app.core.config import settings
-from app.db import mongodb
+from app.infrastructure.config.database.mongodb import connection as mongodb
 
 
 class RagState(TypedDict):
