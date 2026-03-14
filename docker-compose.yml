@@ -1,13 +1,9 @@
-x-api-image: &api-image
-  build:
-    context: .
-    dockerfile: Dockerfile
-  image: medical-management-api:latest
-
 services:
-  # ── Alembic Migration ───────────────────────────────────────────────────────
   migrate:
-    <<: *api-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: medical-management-api:latest
     container_name: medical-migrate
     restart: "no"
     env_file:
@@ -21,14 +17,15 @@ services:
     networks:
       - medical-net
 
-  # ── API ─────────────────────────────────────────────────────────────────────
   api:
-    <<: *api-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: medical-management-api:latest
     container_name: medical_api
     restart: unless-stopped
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      - migrate
     ports:
       - "8080:8080"
     env_file:
