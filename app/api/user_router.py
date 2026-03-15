@@ -15,6 +15,8 @@ from app.application.usecases.user_usecases import (
 )
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
+from app.api.dependencies import get_current_user
+from app.domain.entities.user import User
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -47,7 +49,10 @@ async def list_users(
 async def get_user(
     user_id: UUID,
     repository: UserRepositoryPG = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this user's data")
     try:
         user = await GetUserUseCase(repository).execute(user_id)
     except ValueError as exc:
@@ -60,7 +65,10 @@ async def update_user(
     user_id: UUID,
     payload: UpdateUserRequest,
     repository: UserRepositoryPG = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
 ) -> UserResponse:
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this user's data")
     try:
         user = await UpdateUserUseCase(repository).execute(user_id, payload)
     except ValueError as exc:
@@ -72,7 +80,10 @@ async def update_user(
 async def delete_user(
     user_id: UUID,
     repository: UserRepositoryPG = Depends(get_user_repository),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this user")
     try:
         await DeleteUserUseCase(repository).execute(user_id)
     except ValueError as exc:

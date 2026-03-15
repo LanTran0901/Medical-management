@@ -51,6 +51,8 @@ class UserRepositoryPG(UserRepositoryPort):
 
         model.email = user.email
         model.full_name = user.full_name
+        model.dob = user.dob
+        model.gender = user.gender
         model.avatar_url = user.avatar_url
         model.password_hash = user.password_hash
         model.google_id = user.google_id
@@ -70,6 +72,8 @@ class UserRepositoryPG(UserRepositoryPort):
             status=UserStatus(model.status),
             created_at=model.created_at,
             full_name=model.full_name,
+            dob=model.dob,
+            gender=model.gender,
             avatar_url=model.avatar_url,
             password_hash=model.password_hash,
             google_id=model.google_id,
@@ -86,6 +90,8 @@ class UserRepositoryPG(UserRepositoryPort):
             google_id=user.google_id,
             apple_id=user.apple_id,
             full_name=user.full_name,
+            dob=user.dob,
+            gender=user.gender,
             avatar_url=user.avatar_url,
             status=user.status.value,
             created_at=user.created_at,
