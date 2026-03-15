@@ -1,6 +1,6 @@
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 
 import sqlalchemy as sa
 from sqlalchemy import Enum as PgEnum
@@ -41,6 +41,8 @@ class UserModel(Base):
         sa.String(128), unique=True, nullable=True
     )
     full_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    dob: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+    gender: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(
         user_status_enum,
@@ -51,6 +53,12 @@ class UserModel(Base):
         sa.DateTime(timezone=True),
         nullable=False,
         server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        server_default=sa.text("now()"),
+        onupdate=sa.text("now()"),
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True, default=None

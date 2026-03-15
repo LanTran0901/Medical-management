@@ -20,6 +20,23 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.1-8b-instant"
     rag_knowledge_collection: str = "rag_knowledge"
     rag_chat_history_collection: str = "rag_chat_history"
+
+    jwt_secret: str = "super_secret_key_change_me_in_production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 30
+    google_client_id: str | None = None
+    google_redirect_uri: str | None = None
+    firebase_credentials_path: str | None = None
+
+    # SMTP Config for Emails
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

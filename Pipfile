@@ -8,15 +8,20 @@ fastapi = "*"
 uvicorn = {extras = ["standard"], version = "*"}
 motor = "*"
 pydantic-settings = "*"
-# PostgreSQL async
 sqlalchemy = {extras = ["asyncio"], version = "*"}
 asyncpg = "*"
 greenlet = "*"
-# Alembic migrations (uses psycopg2 sync engine internally)
 alembic = "*"
 psycopg2-binary = "*"
 langgraph = "*"
 langchain-groq = "*"
+pyjwt = "*"
+passlib = {extras = ["bcrypt"], version = "*"}
+bcrypt = "<4.0.0"
+python-multipart = "*"
+google-auth = "*"
+requests = "*"
+firebase-admin = "*"
 
 [dev-packages]
 
