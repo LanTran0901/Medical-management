@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,6 +8,7 @@ from app.api.health_router import router as health_router
 from app.api.user_router import router as user_router
 from app.api.auth_router import router as auth_router
 from app.api.notification_router import router as notification_router
+from app.api.families_router import router as families_router
 from app.routes.rag import router as rag_router
 from app.core.config import settings
 from app.infrastructure.config.database.mongodb.connection import (
@@ -16,11 +18,17 @@ from app.infrastructure.config.database.mongodb.connection import (
 from app.infrastructure.config.database.postgres.connection import engine
 
 
+def _skip_mongo_lifespan() -> bool:
+    """Set SKIP_MONGO_LIFESPAN=1 for integration tests that only need PostgreSQL."""
+    return os.getenv("SKIP_MONGO_LIFESPAN", "").lower() in ("1", "true", "yes")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────
-    # 1. MongoDB
-    await connect_to_mongo()
+    # 1. MongoDB (optional — skipped when e.g. pytest only exercises Postgres)
+    if not _skip_mongo_lifespan():
+        await connect_to_mongo()
 
     # 2. PostgreSQL — verify connectivity (engine is lazy; force a real ping)
     async with engine.connect() as conn:
@@ -37,7 +45,8 @@ async def lifespan(_: FastAPI):
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
-    await close_mongo_connection()
+    if not _skip_mongo_lifespan():
+        await close_mongo_connection()
     await engine.dispose()
 
 
@@ -45,6 +54,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(user_router)
+app.include_router(families_router)
 app.include_router(notification_router)
 app.include_router(rag_router)
 

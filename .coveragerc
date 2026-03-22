@@ -1,0 +1,23 @@
+# https://coverage.readthedocs.io/en/latest/config.html
+
+[run]
+source = app
+branch = false
+omit =
+    */tests/*
+    */__pycache__/*
+    app/alembic/*
+
+[report]
+precision = 2
+show_missing = true
+# Ẩn file đã 100% trên terminal (vẫn có trong HTML)
+skip_covered = true
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise NotImplementedError
+
+[html]
+directory = htmlcov

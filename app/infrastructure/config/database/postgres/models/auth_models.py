@@ -7,14 +7,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.config.database.base import Base
 
+
 class UserDeviceModel(Base):
+    """Thiết bị đăng nhập: PK là hardware id (string) do client gửi lên."""
+
     __tablename__ = "user_devices"
 
-    device_id: Mapped[str] = mapped_column(sa.String(255), primary_key=True)
+    id: Mapped[str] = mapped_column(sa.String(255), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
         index=True,
     )
 
@@ -24,10 +27,12 @@ class UserDeviceModel(Base):
     last_active: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=True,
+        server_default=sa.text("now()"),
     )
 
     def __repr__(self) -> str:
-        return f"<UserDeviceModel device_id={self.device_id} user_id={self.user_id}>"
+        return f"<UserDeviceModel id={self.id!r} user_id={self.user_id}>"
+
 
 class RefreshTokenModel(Base):
     __tablename__ = "refresh_tokens"
@@ -44,16 +49,10 @@ class RefreshTokenModel(Base):
         nullable=False,
         index=True,
     )
-    # Chú ý: Vì UserDevice dùng Composite Key nên FK phải có đủ 2 cột
-    # Trong RefreshTokenModel, ta sẽ lưu `device_id` và dùng chung cột `user_id`
-    device_id: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
-
-    __table_args__ = (
-        sa.ForeignKeyConstraint(
-            ["device_id", "user_id"],
-            ["user_devices.device_id", "user_devices.user_id"],
-            ondelete="CASCADE",
-        ),
+    device_id: Mapped[str | None] = mapped_column(
+        sa.String(255),
+        sa.ForeignKey("user_devices.id", ondelete="CASCADE"),
+        nullable=True,
     )
     token_hash: Mapped[str] = mapped_column(
         sa.Text,
@@ -64,15 +63,10 @@ class RefreshTokenModel(Base):
         sa.DateTime(timezone=True),
         nullable=False,
     )
-    is_revoked: Mapped[bool] = mapped_column(
-        sa.Boolean,
+    status: Mapped[str] = mapped_column(
+        sa.Text,
         nullable=False,
-        server_default=sa.text("false"),
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        sa.DateTime(timezone=True),
-        nullable=False,
-        server_default=sa.text("now()"),
+        server_default=sa.text("'ACTIVE'"),
     )
 
     def __repr__(self) -> str:

@@ -18,11 +18,8 @@ class CreateUserUseCase:
 
         user = User.create(
             email=request.email,
-            full_name=request.full_name,
-            avatar_url=request.avatar_url,
             password_hash=request.password_hash,
             google_id=request.google_id,
-            apple_id=request.apple_id,
         )
         return await self.user_repository.create(user)
 

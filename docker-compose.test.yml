@@ -1,0 +1,50 @@
+# Chạy pytest trong container với PostgreSQL (không cần MongoDB).
+#
+#   docker compose -f docker-compose.test.yml run --rm --build test
+#
+# Chỉ unit test (nhanh, không cần DB):
+#   docker compose -f docker-compose.test.yml run --rm --build test \
+#     sh -c "pip install --no-cache-dir pytest pytest-asyncio && pytest tests/test_family_permission.py -v"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: medical-postgres-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: medical
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d medical"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+    networks:
+      - medical-test-net
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medical-api-test
+    restart: "no"
+    env_file:
+      - docker/test.env
+    environment:
+      HOMEDMEDAI_INTEGRATION: "1"
+      SKIP_MONGO_LIFESPAN: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    entrypoint: []
+    command: >
+      sh -c "pip install --no-cache-dir pytest pytest-asyncio pytest-cov &&
+             cd /app/app && alembic --config alembic.ini upgrade head &&
+             cd /app && pytest tests/ -v --tb=short"
+    networks:
+      - medical-test-net
+
+networks:
+  medical-test-net:
+    driver: bridge

@@ -45,8 +45,7 @@ class RefreshToken:
     user_id: uuid.UUID
     token_hash: str
     expires_at: datetime
-    is_revoked: bool
-    created_at: datetime
+    status: str
     device_id: Optional[str] = None
 
     @property
@@ -55,10 +54,10 @@ class RefreshToken:
 
     @property
     def is_valid(self) -> bool:
-        return not self.is_revoked and not self.is_expired
+        return self.status == "ACTIVE" and not self.is_expired
 
     def revoke(self) -> None:
-        self.is_revoked = True
+        self.status = "REVOKED"
 
     @classmethod
     def create(
@@ -73,7 +72,6 @@ class RefreshToken:
             user_id=user_id,
             token_hash=token_hash,
             expires_at=expires_at,
-            is_revoked=False,
-            created_at=datetime.now(timezone.utc),
+            status="ACTIVE",
             device_id=device_id,
         )
