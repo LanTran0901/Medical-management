@@ -32,11 +32,9 @@ class RegisterUseCase:
 
         user = User.create(
             email=request.email,
-            full_name=request.full_name,
-            dob=request.dob,
-            gender=request.gender,
-            avatar_url=request.avatar_url,
-            password_hash=get_password_hash(request.password_hash) if request.password_hash else None,
+            password_hash=get_password_hash(request.password_hash)
+            if request.password_hash
+            else None,
         )
         return await self.user_repository.create(user)
 
@@ -99,8 +97,6 @@ class GoogleLoginUseCase:
             user = User.create(
                 email=email,
                 google_id=google_id,
-                full_name=id_info.get("name"),
-                avatar_url=id_info.get("picture")
             )
             user = await self.user_repository.create(user)
 
@@ -174,7 +170,7 @@ async def _generate_tokens(
     fcm_token: str | None, 
     auth_repository: AuthRepositoryPort,
 ) -> TokenResponse:
-    # 1. Update or create device based on composite key (device_id, user_id)
+    # 1. Update or create device (PK: hardware id string + user_id row)
     device = await auth_repository.get_device(device_id, user_id)
     if device:
         device.update_activity(fcm_token)

@@ -7,6 +7,8 @@ from app.core.security import decode_token
 from app.domain.entities.user import User
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
+from app.infrastructure.repositories.family_repository_pg import FamilyRepositoryPG
+from app.application.usecases.family_usecases import FamiliesService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -35,3 +37,12 @@ async def get_current_user(
         raise credentials_exception
     
     return user
+
+
+def get_families_service(
+    session: AsyncSession = Depends(get_session),
+) -> FamiliesService:
+    return FamiliesService(
+        FamilyRepositoryPG(session),
+        UserRepositoryPG(session),
+    )

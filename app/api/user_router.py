@@ -45,6 +45,19 @@ async def list_users(
     return [UserResponse.from_entity(user) for user in users]
 
 
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+    repository: UserRepositoryPG = Depends(get_user_repository),
+) -> UserResponse:
+    """Return the authenticated user; same payload as GET /users/{user_id} for self."""
+    try:
+        user = await GetUserUseCase(repository).execute(current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return UserResponse.from_entity(user)
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: UUID,

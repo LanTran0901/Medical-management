@@ -50,13 +50,8 @@ class UserRepositoryPG(UserRepositoryPort):
             raise ValueError("User not found.")
 
         model.email = user.email
-        model.full_name = user.full_name
-        model.dob = user.dob
-        model.gender = user.gender
-        model.avatar_url = user.avatar_url
         model.password_hash = user.password_hash
         model.google_id = user.google_id
-        model.apple_id = user.apple_id
         model.status = user.status.value
         model.deleted_at = user.deleted_at
 
@@ -71,13 +66,8 @@ class UserRepositoryPG(UserRepositoryPort):
             email=model.email,
             status=UserStatus(model.status),
             created_at=model.created_at,
-            full_name=model.full_name,
-            dob=model.dob,
-            gender=model.gender,
-            avatar_url=model.avatar_url,
             password_hash=model.password_hash,
             google_id=model.google_id,
-            apple_id=model.apple_id,
             deleted_at=model.deleted_at,
         )
 
@@ -88,11 +78,6 @@ class UserRepositoryPG(UserRepositoryPort):
             email=user.email,
             password_hash=user.password_hash,
             google_id=user.google_id,
-            apple_id=user.apple_id,
-            full_name=user.full_name,
-            dob=user.dob,
-            gender=user.gender,
-            avatar_url=user.avatar_url,
             status=user.status.value,
             created_at=user.created_at,
             deleted_at=user.deleted_at,

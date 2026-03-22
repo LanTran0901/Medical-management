@@ -105,6 +105,29 @@ docker compose down
 - Health check: `http://127.0.0.1:8080/health` → `{"status":"ok","mongodb":"connected","postgres":"connected"}`
 - Swagger UI: `http://127.0.0.1:8080/docs`
 
+## Pytest bang Docker (PostgreSQL — khong can MongoDB)
+
+Dung `docker-compose.test.yml` + `docker/test.env` (bien `SKIP_MONGO_LIFESPAN=1`).
+
+```powershell
+docker compose -f docker-compose.test.yml run --rm --build test
+```
+
+Chi tiet: [docker/README.md](./docker/README.md)
+
+### Coverage (do phu code)
+
+Can cai `pytest-cov` (chua co trong Pipfile lock mac dinh):
+
+```powershell
+pip install pytest pytest-cov
+pytest
+# Bao cao HTML: mo htmlcov/index.html
+# Bo qua coverage (chay nhanh): pytest --no-cov
+```
+
+Cau hinh: `.coveragerc` + `pytest.ini` (`addopts` voi `--cov=app`). Muon dua vao Pipfile: them `pytest`, `pytest-cov` vao `[dev-packages]` roi `pipenv lock`.
+
 ## Kien truc
 
 Xem [CLEAN_ARCHITECTURE.md](./CLEAN_ARCHITECTURE.md)

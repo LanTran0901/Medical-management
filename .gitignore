@@ -5,3 +5,10 @@ __pycache__/
 *.pyc
 .agent/
 firebase-credentials.json
+podsite/
+htmlcov/
+.coverage
+coverage.xml
+.codex/
+.specify/
+specs/

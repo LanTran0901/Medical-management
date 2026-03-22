@@ -10,6 +10,7 @@ from app.application.ports.auth_port import AuthRepositoryPort
 from app.domain.entities.auth import UserDevice, RefreshToken
 from app.infrastructure.config.database.postgres.models.auth_models import UserDeviceModel, RefreshTokenModel
 
+
 class AuthRepositoryPG(AuthRepositoryPort):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -22,14 +23,23 @@ class AuthRepositoryPG(AuthRepositoryPort):
         return self._device_to_entity(model)
 
     async def get_device(self, device_id: str, user_id: UUID) -> Optional[UserDevice]:
-        # get() with composite key takes a tuple of primary key values in the order defined in the model
-        model = await self.session.get(UserDeviceModel, (device_id, user_id))
+        stmt = select(UserDeviceModel).where(
+            UserDeviceModel.id == device_id,
+            UserDeviceModel.user_id == user_id,
+        )
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
         if model is None:
             return None
         return self._device_to_entity(model)
 
     async def update_device(self, device: UserDevice) -> UserDevice:
-        model = await self.session.get(UserDeviceModel, (device.device_id, device.user_id))
+        stmt = select(UserDeviceModel).where(
+            UserDeviceModel.id == device.device_id,
+            UserDeviceModel.user_id == device.user_id,
+        )
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
         if model is None:
             raise ValueError("Device not found.")
 
@@ -68,8 +78,7 @@ class AuthRepositoryPG(AuthRepositoryPort):
         if model is None:
             raise ValueError("Token not found.")
 
-        model.is_revoked = token.is_revoked
-        # Only immutable fields shouldn't be updated, but we might just update all mapped fields
+        model.status = token.status
         model.token_hash = token.token_hash
 
         await self.session.flush()
@@ -79,7 +88,7 @@ class AuthRepositoryPG(AuthRepositoryPort):
     @staticmethod
     def _device_to_entity(model: UserDeviceModel) -> UserDevice:
         return UserDevice(
-            device_id=model.device_id,
+            device_id=model.id,
             user_id=model.user_id,
             fcm_token=model.fcm_token,
             device_name=model.device_name,
@@ -90,7 +99,7 @@ class AuthRepositoryPG(AuthRepositoryPort):
     @staticmethod
     def _device_to_model(device: UserDevice) -> UserDeviceModel:
         return UserDeviceModel(
-            device_id=device.device_id,
+            id=device.device_id,
             user_id=device.user_id,
             fcm_token=device.fcm_token,
             device_name=device.device_name,
@@ -105,8 +114,7 @@ class AuthRepositoryPG(AuthRepositoryPort):
             user_id=model.user_id,
             token_hash=model.token_hash,
             expires_at=model.expires_at,
-            is_revoked=model.is_revoked,
-            created_at=model.created_at,
+            status=model.status,
             device_id=model.device_id,
         )
 
@@ -117,7 +125,6 @@ class AuthRepositoryPG(AuthRepositoryPort):
             user_id=token.user_id,
             token_hash=token.token_hash,
             expires_at=token.expires_at,
-            is_revoked=token.is_revoked,
-            created_at=token.created_at,
+            status=token.status,
             device_id=token.device_id,
         )

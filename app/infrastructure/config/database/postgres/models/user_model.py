@@ -1,6 +1,6 @@
 
 import uuid
-from datetime import datetime, date
+from datetime import datetime
 
 import sqlalchemy as sa
 from sqlalchemy import Enum as PgEnum
@@ -37,13 +37,6 @@ class UserModel(Base):
     google_id: Mapped[str | None] = mapped_column(
         sa.String(128), unique=True, nullable=True
     )
-    apple_id: Mapped[str | None] = mapped_column(
-        sa.String(128), unique=True, nullable=True
-    )
-    full_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
-    dob: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
-    gender: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(
         user_status_enum,
         nullable=False,
