@@ -10,7 +10,7 @@ from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
 from app.infrastructure.repositories.family_repository_pg import FamilyRepositoryPG
 from app.application.usecases.family_usecases import FamiliesService
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login/swagger")
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme), 

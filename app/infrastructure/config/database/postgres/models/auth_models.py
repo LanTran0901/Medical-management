@@ -18,6 +18,7 @@ class UserDeviceModel(Base):
         UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        primary_key=True,
         index=True,
     )
 
@@ -51,7 +52,6 @@ class RefreshTokenModel(Base):
     )
     device_id: Mapped[str | None] = mapped_column(
         sa.String(255),
-        sa.ForeignKey("user_devices.id", ondelete="CASCADE"),
         nullable=True,
     )
     token_hash: Mapped[str] = mapped_column(
@@ -67,6 +67,14 @@ class RefreshTokenModel(Base):
         sa.Text,
         nullable=False,
         server_default=sa.text("'ACTIVE'"),
+    )
+
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["device_id", "user_id"],
+            ["user_devices.id", "user_devices.user_id"],
+            ondelete="CASCADE",
+        ),
     )
 
     def __repr__(self) -> str:
