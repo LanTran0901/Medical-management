@@ -9,6 +9,7 @@ from app.api.user_router import router as user_router
 from app.api.auth_router import router as auth_router
 from app.api.notification_router import router as notification_router
 from app.api.families_router import router as families_router
+from app.api.medical_dictionary_router import router as medical_dictionary_router
 from app.routes.rag import router as rag_router
 from app.core.config import settings
 from app.infrastructure.config.database.mongodb.connection import (
@@ -55,6 +56,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(families_router)
+app.include_router(medical_dictionary_router)
 app.include_router(notification_router)
 app.include_router(rag_router)
 

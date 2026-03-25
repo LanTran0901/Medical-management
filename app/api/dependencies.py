@@ -8,7 +8,9 @@ from app.domain.entities.user import User
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
 from app.infrastructure.repositories.family_repository_pg import FamilyRepositoryPG
+from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
 from app.application.usecases.family_usecases import FamiliesService
+from app.application.usecases.medical_dictionary_usecases import MedicalDictionaryService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -46,3 +48,9 @@ def get_families_service(
         FamilyRepositoryPG(session),
         UserRepositoryPG(session),
     )
+
+
+def get_medical_dictionary_service(
+    session: AsyncSession = Depends(get_session),
+) -> MedicalDictionaryService:
+    return MedicalDictionaryService(MedicalDictionaryRepository(session))

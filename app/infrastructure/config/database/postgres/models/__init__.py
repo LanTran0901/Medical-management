@@ -4,6 +4,11 @@ from app.infrastructure.config.database.postgres.models.user_model import UserMo
 from app.infrastructure.config.database.postgres.models.auth_models import UserDeviceModel, RefreshTokenModel
 from app.infrastructure.config.database.postgres.models.family_models import FamilyModel, FamilyMembershipModel
 from app.infrastructure.config.database.postgres.models.profile_models import HealthDetailModel, ProfileModel
+from app.infrastructure.config.database.postgres.models.medical_dictionary_models import (
+    DiseaseModel,
+    DrugModel,
+    VaccineModel,
+)
 
 __all__ = [
     "UserModel",
@@ -13,4 +18,7 @@ __all__ = [
     "FamilyMembershipModel",
     "ProfileModel",
     "HealthDetailModel",
+    "DiseaseModel",
+    "DrugModel",
+    "VaccineModel",
 ]
