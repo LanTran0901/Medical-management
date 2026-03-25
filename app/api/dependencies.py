@@ -12,7 +12,7 @@ from app.infrastructure.repositories.medical_dictionary_repository import Medica
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medical_dictionary_usecases import MedicalDictionaryService
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login/swagger")
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme), 
