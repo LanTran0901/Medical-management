@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     image: medical-management-api:latest
     container_name: medical-migrate
-    restart: "no"
+    restart: on-failure:3
     env_file:
       - .env
     working_dir: /app/app
@@ -25,7 +25,8 @@ services:
     container_name: medical_api
     restart: unless-stopped
     depends_on:
-      - migrate
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
     env_file:
