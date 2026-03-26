@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.dependencies import get_current_user, get_families_service
 from app.application.dtos.family_dto import (
@@ -14,6 +15,7 @@ from app.application.dtos.family_dto import (
     FamilySummaryResponse,
     HealthDetailResponse,
     JoinFamilyRequest,
+    InvitePreviewResponse,
     LinkProfileRequest,
     MembershipResponse,
     PatchFamilyRequest,
@@ -27,6 +29,9 @@ from app.application.usecases.family_usecases import FamiliesService
 from app.domain.entities.user import User
 
 router = APIRouter(prefix="/families", tags=["families"])
+_INVITE_PREVIEW_RATE_WINDOW_SECONDS = 60
+_INVITE_PREVIEW_RATE_LIMIT = 30
+_invite_preview_hits: dict[str, list[float]] = {}
 
 
 def _handle_family_error(exc: Exception) -> None:
@@ -52,7 +57,27 @@ def _handle_family_error(exc: Exception) -> None:
         ) from exc
 
 
-@router.post("", response_model=CreateFamilyResponse, status_code=status.HTTP_201_CREATED)
+def _enforce_invite_preview_rate_limit(client_ip: str) -> None:
+    now = time.time()
+    window_start = now - _INVITE_PREVIEW_RATE_WINDOW_SECONDS
+    hits = _invite_preview_hits.get(client_ip, [])
+    hits = [ts for ts in hits if ts >= window_start]
+    if len(hits) >= _INVITE_PREVIEW_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many preview requests, try again later",
+        )
+    hits.append(now)
+    _invite_preview_hits[client_ip] = hits
+
+
+@router.post(
+    "",
+    response_model=CreateFamilyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create family",
+    description="Create a family and owner membership/profile",
+)
 async def create_family(
     body: CreateFamilyRequest,
     user: User = Depends(get_current_user),
@@ -70,7 +95,28 @@ async def create_family(
         raise
 
 
-@router.get("", response_model=list[FamilySummaryResponse])
+@router.get(
+    "/invite/preview",
+    response_model=InvitePreviewResponse,
+    summary="Preview invite code",
+    description="Public preview for deep-link/QR invite code before login",
+)
+async def preview_invite(
+    request: Request,
+    invite_code: str = Query(..., min_length=1, max_length=64),
+    svc: FamiliesService = Depends(get_families_service),
+) -> InvitePreviewResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    _enforce_invite_preview_rate_limit(client_ip)
+    try:
+        fam = await svc.preview_invite(invite_code)
+        return InvitePreviewResponse(family_name=fam.family_name, invite_code=fam.invite_code)
+    except Exception as e:
+        _handle_family_error(e)
+        raise
+
+
+@router.get("", response_model=list[FamilySummaryResponse], summary="List my families", description="List families the current user belongs to")
 async def list_families(
     user: User = Depends(get_current_user),
     svc: FamiliesService = Depends(get_families_service),
@@ -79,7 +125,12 @@ async def list_families(
     return [FamilySummaryResponse.from_entity(f) for f in families]
 
 
-@router.post("/join", status_code=status.HTTP_200_OK)
+@router.post(
+    "/join",
+    status_code=status.HTTP_200_OK,
+    summary="Join family by invite code",
+    description="Join using invite_code from manual input, deep-link, or QR payload",
+)
 async def join_family(
     body: JoinFamilyRequest,
     user: User = Depends(get_current_user),
@@ -97,7 +148,7 @@ async def join_family(
         raise
 
 
-@router.get("/{family_id}", response_model=FamilyResponse)
+@router.get("/{family_id}", response_model=FamilyResponse, summary="Get family", description="Get family details if current user is in scope")
 async def get_family(
     family_id: UUID,
     user: User = Depends(get_current_user),
@@ -111,7 +162,7 @@ async def get_family(
         raise
 
 
-@router.patch("/{family_id}", response_model=FamilyResponse)
+@router.patch("/{family_id}", response_model=FamilyResponse, summary="Update family", description="Update family name (OWNER/ADMIN)")
 async def patch_family(
     family_id: UUID,
     body: PatchFamilyRequest,
@@ -126,7 +177,12 @@ async def patch_family(
         raise
 
 
-@router.post("/{family_id}/invite/rotate", response_model=FamilyResponse)
+@router.post(
+    "/{family_id}/invite/rotate",
+    response_model=FamilyResponse,
+    summary="Rotate invite code",
+    description="Rotate family invite code (OWNER only)",
+)
 async def rotate_invite(
     family_id: UUID,
     user: User = Depends(get_current_user),
@@ -140,7 +196,12 @@ async def rotate_invite(
         raise
 
 
-@router.get("/{family_id}/members", response_model=list[MembershipResponse])
+@router.get(
+    "/{family_id}/members",
+    response_model=list[MembershipResponse],
+    summary="List family members",
+    description="List memberships and linked profile information in a family",
+)
 async def list_members(
     family_id: UUID,
     user: User = Depends(get_current_user),
@@ -161,7 +222,12 @@ async def list_members(
         raise
 
 
-@router.patch("/{family_id}/members/{membership_id}", response_model=MembershipResponse)
+@router.patch(
+    "/{family_id}/members/{membership_id}",
+    response_model=MembershipResponse,
+    summary="Update member role",
+    description="Update membership role (OWNER only)",
+)
 async def patch_member_role(
     family_id: UUID,
     membership_id: UUID,
@@ -177,7 +243,12 @@ async def patch_member_role(
         raise
 
 
-@router.delete("/{family_id}/members/{membership_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{family_id}/members/{membership_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove member",
+    description="Remove a membership from family",
+)
 async def delete_member(
     family_id: UUID,
     membership_id: UUID,
@@ -195,6 +266,8 @@ async def delete_member(
     "/{family_id}/profiles",
     response_model=ProfileResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create profile in family",
+    description="Create a profile and membership in the family (OWNER/ADMIN)",
 )
 async def create_profile_in_family(
     family_id: UUID,
@@ -210,7 +283,12 @@ async def create_profile_in_family(
         raise
 
 
-@router.get("/{family_id}/profiles", response_model=list[ProfileResponse])
+@router.get(
+    "/{family_id}/profiles",
+    response_model=list[ProfileResponse],
+    summary="List family profiles",
+    description="List profiles in a family; MEMBER only sees self-linked profiles",
+)
 async def list_profiles(
     family_id: UUID,
     user: User = Depends(get_current_user),
@@ -224,7 +302,12 @@ async def list_profiles(
         raise
 
 
-@router.get("/{family_id}/profiles/{profile_id}", response_model=ProfileResponse)
+@router.get(
+    "/{family_id}/profiles/{profile_id}",
+    response_model=ProfileResponse,
+    summary="Get profile",
+    description="Get a profile in family scope with role-based visibility",
+)
 async def get_profile(
     family_id: UUID,
     profile_id: UUID,
@@ -239,7 +322,12 @@ async def get_profile(
         raise
 
 
-@router.patch("/{family_id}/profiles/{profile_id}", response_model=ProfileResponse)
+@router.patch(
+    "/{family_id}/profiles/{profile_id}",
+    response_model=ProfileResponse,
+    summary="Patch profile",
+    description="Patch profile fields; MEMBER can patch only self-linked profile",
+)
 async def patch_profile(
     family_id: UUID,
     profile_id: UUID,
@@ -255,7 +343,12 @@ async def patch_profile(
         raise
 
 
-@router.delete("/{family_id}/profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{family_id}/profiles/{profile_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete profile",
+    description="Soft-delete profile and clean memberships (OWNER/ADMIN)",
+)
 async def delete_profile(
     family_id: UUID,
     profile_id: UUID,
@@ -269,7 +362,12 @@ async def delete_profile(
         raise
 
 
-@router.patch("/{family_id}/profiles/{profile_id}/link", response_model=ProfileResponse)
+@router.patch(
+    "/{family_id}/profiles/{profile_id}/link",
+    response_model=ProfileResponse,
+    summary="Link profile to user",
+    description="Link a virtual profile to a user (OWNER/ADMIN)",
+)
 async def link_profile(
     family_id: UUID,
     profile_id: UUID,
@@ -285,7 +383,12 @@ async def link_profile(
         raise
 
 
-@router.get("/{family_id}/profiles/{profile_id}/health", response_model=HealthDetailResponse)
+@router.get(
+    "/{family_id}/profiles/{profile_id}/health",
+    response_model=HealthDetailResponse,
+    summary="Get profile health details",
+    description="Read health details; MEMBER can read only self-linked profile",
+)
 async def get_health(
     family_id: UUID,
     profile_id: UUID,
@@ -310,7 +413,12 @@ async def get_health(
         raise
 
 
-@router.patch("/{family_id}/profiles/{profile_id}/health", response_model=HealthDetailResponse)
+@router.patch(
+    "/{family_id}/profiles/{profile_id}/health",
+    response_model=HealthDetailResponse,
+    summary="Patch profile health details",
+    description="Upsert health details (OWNER/ADMIN)",
+)
 async def patch_health(
     family_id: UUID,
     profile_id: UUID,

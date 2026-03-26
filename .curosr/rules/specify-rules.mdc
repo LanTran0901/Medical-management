@@ -1,0 +1,35 @@
+﻿---
+description: Project Development Guidelines
+globs: ["**/*"]
+alwaysApply: true
+---
+# Medical-management Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-03-22
+
+## Active Technologies
+
+- Python 3.x (theo Pipfile dự án) + FastAPI, Pydantic v2, SQLAlchemy 2 async, asyncpg (002-families-profiles-health)
+
+## Project Structure
+
+```text
+backend/
+frontend/
+tests/
+```
+
+## Commands
+
+cd src; pytest; ruff check .
+
+## Code Style
+
+Python 3.x (theo Pipfile dự án): Follow standard conventions
+
+## Recent Changes
+
+- 002-families-profiles-health: Added Python 3.x (theo Pipfile dự án) + FastAPI, Pydantic v2, SQLAlchemy 2 async, asyncpg
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

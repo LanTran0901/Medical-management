@@ -47,6 +47,73 @@ def test_case_c_member_patch_health_forbidden(client) -> None:
     )
     assert patch.status_code == 403
 
+    get_other = client.get(
+        f"/families/{family_id}/profiles/{owner_profile_id}/health",
+        headers=auth_headers(member_tok),
+    )
+    assert get_other.status_code == 403
+
+    patch_prof = client.patch(
+        f"/families/{family_id}/profiles/{owner_profile_id}",
+        json={"full_name": "hijack"},
+        headers=auth_headers(member_tok),
+    )
+    assert patch_prof.status_code == 403
+
+    get_prof = client.get(
+        f"/families/{family_id}/profiles/{owner_profile_id}",
+        headers=auth_headers(member_tok),
+    )
+    assert get_prof.status_code == 403
+
+
+def test_case_e_member_get_own_health_ok(client) -> None:
+    """SC-001 (e) complement: MEMBER GET health for self-linked profile → 200."""
+    owner_suf = register_user(client)
+    member_suf = register_user(client)
+    owner_tok = login_access_token(client, owner_suf)
+    member_tok = login_access_token(client, member_suf)
+
+    cr = client.post(
+        "/families",
+        json={"family_name": "FamHg", "full_name": "Owner G"},
+        headers=auth_headers(owner_tok),
+    )
+    assert cr.status_code == 201, cr.text
+    family_id = cr.json()["family"]["id"]
+
+    jr = client.post(
+        "/families/join",
+        json={"invite_code": cr.json()["family"]["invite_code"], "full_name": "Member G"},
+        headers=auth_headers(member_tok),
+    )
+    assert jr.status_code == 200, jr.text
+
+    me = client.get("/users/me", headers=auth_headers(member_tok))
+    assert me.status_code == 200
+    member_user_id = me.json()["id"]
+
+    plist = client.get(f"/families/{family_id}/profiles", headers=auth_headers(member_tok))
+    assert plist.status_code == 200
+    member_profile_id = next(
+        p["id"] for p in plist.json() if p.get("linked_user_id") == member_user_id
+    )
+
+    gr = client.get(
+        f"/families/{family_id}/profiles/{member_profile_id}/health",
+        headers=auth_headers(member_tok),
+    )
+    assert gr.status_code == 200
+    assert gr.json()["profile_id"] == member_profile_id
+
+    patch_self = client.patch(
+        f"/families/{family_id}/profiles/{member_profile_id}",
+        json={"full_name": "Member New Name"},
+        headers=auth_headers(member_tok),
+    )
+    assert patch_self.status_code == 200, patch_self.text
+    assert patch_self.json()["full_name"] == "Member New Name"
+
 
 def test_case_d_profile_not_in_this_family_returns_404(client) -> None:
     """SC-001 (d): member family F1 gọi profile chỉ thuộc F2 → 404."""
