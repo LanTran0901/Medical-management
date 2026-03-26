@@ -12,3 +12,5 @@ coverage.xml
 .codex/
 .specify/
 specs/
+
+.curosr/
