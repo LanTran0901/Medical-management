@@ -12,3 +12,7 @@ coverage.xml
 .codex/
 .specify/
 specs/
+
+.curosr/
+*.local
+*.local.yml

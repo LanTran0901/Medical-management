@@ -1,14 +1,40 @@
+# VCS/IDE
 .git
+.gitignore
 .vscode
+.idea
+.cursor
+.curosr
+
+# Python
 .venv
+venv
+env
 __pycache__
 *.pyc
 *.pyo
 *.pyd
-.env
-mongo_data
 .pytest_cache
 .mypy_cache
 .ruff_cache
 .coverage
+htmlcov
+*.egg-info
+dist
+build
+
+# Tests & docs — không cần trong image runtime API
+tests
+specs
+
+# Env/log
+.env
 *.log
+
+# Data/cache lớn
+mongo_data
+**/mongo_data
+
+# Thư mục khác không dùng khi build API (thường rất nặng)
+podsite
+node_modules

@@ -78,7 +78,10 @@ def upgrade() -> None:
     op.drop_column("users", "gender")
     op.drop_column("users", "avatar_url")
 
-    # --- refresh_tokens + user_devices: align with varchar device id PK ---
+    # --- refresh_tokens + user_devices ---
+    # Target schema matches UserDeviceModel: PK (id, user_id). This revision
+    # recreates tables with PK(id) + FK refresh_tokens.device_id -> user_devices.id;
+    # the following revision da58e3fdb641 switches to PK(id, user_id) and composite FK.
     op.drop_index(op.f("ix_refresh_tokens_user_id"), table_name="refresh_tokens")
     op.drop_table("refresh_tokens")
     op.drop_index(op.f("ix_user_devices_user_id"), table_name="user_devices")

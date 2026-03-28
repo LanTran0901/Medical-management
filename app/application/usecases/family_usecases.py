@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -178,16 +179,47 @@ class FamiliesService:
         )
 
     async def list_profiles(self, family_id: UUID, user_id: UUID) -> list[Profile]:
-        await self._membership_or_404(family_id, user_id)
-        return await self._repo.list_profiles_in_family(family_id)
+        m = await self._membership_or_404(family_id, user_id)
+        rows = await self._repo.list_profiles_in_family(family_id)
+        if not has_at_least(m.role, FamilyRole.ADMIN):
+            rows = [p for p in rows if p.linked_user_id == user_id]
+        return rows
+
+    async def list_my_linked_profiles(
+        self,
+        user_id: UUID,
+        profile_scope: Literal["all", "without_family", "with_family"] = "all",
+    ) -> list[Profile]:
+        return await self._repo.list_linked_profiles_for_user(
+            user_id,
+            profile_scope=profile_scope,
+        )
+
+    async def create_my_personal_profile(self, user_id: UUID, full_name: str) -> Profile:
+        existing = await self._repo.find_personal_profile_for_user(user_id)
+        if existing is not None:
+            raise ConflictError("Personal profile already exists")
+        try:
+            return await self._repo.create_personal_profile(user_id=user_id, full_name=full_name)
+        except IntegrityError as e:
+            raise ConflictError("Personal profile already exists") from e
+
+    async def preview_invite(self, invite_code: str) -> Family:
+        fam = await self._repo.find_family_by_invite_code(invite_code)
+        if fam is None:
+            raise NotFoundError("Invalid or expired invite code")
+        return fam
 
     async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
-        await self._membership_or_404(family_id, user_id)
+        m = await self._membership_or_404(family_id, user_id)
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
         p = await self._repo.get_profile(profile_id)
         if p is None:
             raise NotFoundError("Profile not found")
+        if not has_at_least(m.role, FamilyRole.ADMIN):
+            if p.linked_user_id != user_id:
+                raise ForbiddenError("Not allowed to view this profile")
         return p
 
     async def patch_profile(
@@ -198,10 +230,14 @@ class FamiliesService:
         body: PatchProfileRequest,
     ) -> Profile:
         m = await self._membership_or_404(family_id, user_id)
-        if not has_at_least(m.role, FamilyRole.ADMIN):
-            raise ForbiddenError("OWNER or ADMIN required")
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
+        if not has_at_least(m.role, FamilyRole.ADMIN):
+            prof = await self._repo.get_profile(profile_id)
+            if prof is None:
+                raise NotFoundError("Profile not found")
+            if prof.linked_user_id != user_id:
+                raise ForbiddenError("OWNER or ADMIN required")
         p = await self._repo.patch_profile(
             profile_id,
             full_name=body.full_name,
@@ -256,9 +292,15 @@ class FamiliesService:
         profile_id: UUID,
         user_id: UUID,
     ) -> HealthDetail | None:
-        await self._membership_or_404(family_id, user_id)
+        m = await self._membership_or_404(family_id, user_id)
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
+        if not has_at_least(m.role, FamilyRole.ADMIN):
+            p = await self._repo.get_profile(profile_id)
+            if p is None:
+                raise NotFoundError("Profile not found")
+            if p.linked_user_id != user_id:
+                raise ForbiddenError("Not allowed to view this profile's health details")
         return await self._repo.get_health(profile_id)
 
     async def patch_health(

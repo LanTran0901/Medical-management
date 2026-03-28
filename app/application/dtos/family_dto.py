@@ -30,6 +30,16 @@ class JoinFamilyRequest(BaseModel):
     )
 
 
+class CreatePersonalProfileRequest(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+
+class InvitePreviewResponse(BaseModel):
+    family_name: str
+    invite_code: str
+    valid: bool = True
+
+
 class PatchFamilyRequest(BaseModel):
     family_name: str = Field(..., min_length=1, max_length=255)
 
