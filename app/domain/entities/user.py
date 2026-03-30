@@ -22,6 +22,7 @@ class User:
     created_at: datetime
     password_hash: Optional[str] = None
     google_id: Optional[str] = None
+    phone_number: Optional[str] = None
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
 
@@ -51,6 +52,7 @@ class User:
         *,
         password_hash: Optional[str] = None,
         google_id: Optional[str] = None,
+        phone_number: Optional[str] = None,
     ) -> "User":
         return cls(
             id=uuid.uuid4(),
@@ -59,4 +61,5 @@ class User:
             created_at=datetime.now(timezone.utc),
             password_hash=password_hash,
             google_id=google_id,
+            phone_number=phone_number.strip() if phone_number else None,
         )

@@ -12,12 +12,21 @@ class FamilyRole(StrEnum):
     MEMBER = "MEMBER"
 
 
+class FamilyInviteStatus(StrEnum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+
+
 @dataclass(frozen=True, slots=True)
 class Family:
     id: UUID
     family_name: str
     invite_code: str
     created_at: datetime
+    created_by: UUID | None = None
+    address: str | None = None
+    avatar_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,3 +37,28 @@ class FamilyMembership:
     role: FamilyRole
     added_by: UUID
     created_at: datetime
+    relation_role: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FamilyInvite:
+    id: UUID
+    family_id: UUID
+    role: FamilyRole
+    status: FamilyInviteStatus
+    invited_by: UUID
+    invited_at: datetime
+    phone_number: str | None = None
+    user_id: UUID | None = None
+    relation_role: str | None = None
+    responded_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FamilyInviteInboxItem:
+    invite: FamilyInvite
+    family_name: str
+    family_avatar_url: str | None
+    family_member_count: int
+    inviter_name: str | None
+    inviter_role: FamilyRole | None

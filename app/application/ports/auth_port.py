@@ -25,6 +25,11 @@ class AuthRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def user_owns_fcm_token(self, user_id: UUID, fcm_token: str) -> bool:
+        """True if a device row exists for this user with the given FCM token."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def create_refresh_token(self, token: RefreshToken) -> RefreshToken:
         raise NotImplementedError
 

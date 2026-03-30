@@ -33,6 +33,7 @@ class UserModel(Base):
         unique=True,
         nullable=False,
     )
+    phone_number: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     google_id: Mapped[str | None] = mapped_column(
         sa.String(128), unique=True, nullable=True

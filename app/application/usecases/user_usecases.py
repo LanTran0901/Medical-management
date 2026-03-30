@@ -2,26 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from app.application.dtos.user_dto import CreateUserRequest, UpdateUserRequest
+from app.application.dtos.user_dto import UpdateUserRequest
 from app.application.ports.user_port import UserRepositoryPort
 from app.domain.entities.user import User
-
-
-class CreateUserUseCase:
-    def __init__(self, user_repository: UserRepositoryPort) -> None:
-        self.user_repository = user_repository
-
-    async def execute(self, request: CreateUserRequest) -> User:
-        existing_user = await self.user_repository.get_by_email(request.email)
-        if existing_user is not None:
-            raise ValueError("User with this email already exists.")
-
-        user = User.create(
-            email=request.email,
-            password_hash=request.password_hash,
-            google_id=request.google_id,
-        )
-        return await self.user_repository.create(user)
 
 
 class GetUserUseCase:

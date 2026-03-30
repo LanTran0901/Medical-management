@@ -5,6 +5,7 @@ Du an FastAPI theo **Clean Architecture**, su dung **hai database song song**:
 - **MongoDB** (Motor async) — Medical records, logs, document data
 
 Xem [CLEAN_ARCHITECTURE.md](./CLEAN_ARCHITECTURE.md) de hieu ro kien truc layered va dual-DB pattern.
+Xem [FAMILY_API_FE_GUIDE_VI.md](./FAMILY_API_FE_GUIDE_VI.md) de FE goi Family APIs theo contract backend hien tai.
 
 ## Yeu cau
 

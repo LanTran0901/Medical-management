@@ -1,14 +1,50 @@
+# Build context: chỉ cần app + Pipfile cho image API. Giảm dung lượng gửi cho docker build (trước đây ~40MB+ do podsite/specs/...).
+
+# VCS & IDE
 .git
+.gitignore
 .vscode
+.cursor
+.idea
+
+# Python
 .venv
+venv
 __pycache__
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.env
-mongo_data
 .pytest_cache
 .mypy_cache
 .ruff_cache
+*.egg-info
+dist
+build
+
+# Secrets & local env (không ignore .env.example — có thể tham chiếu trong doc)
+.env
+
+# Docker / compose (không cần bên trong image)
+docker-compose*.yml
+Dockerfile*
+
+# DB / cache / coverage
+mongo_data
+htmlcov
 .coverage
+coverage.xml
 *.log
+
+# Specs & tooling (không cần runtime)
+specs
+.specify
+.specs
+.codex
+.agent
+
+# Local uploads & môi trường phụ (có thể rất lớn)
+uploads
+podsite
+
+# Tests (image local chỉ chạy uvicorn + alembic)
+tests

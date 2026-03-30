@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from app.application.dtos.notification_dto import (
     SendNotificationRequest,
     SendNotificationToDeviceRequest,
@@ -20,8 +22,10 @@ class SendNotificationToUserUseCase:
         self.auth_repository = auth_repository
         self.notification_service = notification_service
 
-    async def execute(self, request: SendNotificationRequest) -> NotificationResponse:
-        devices = await self.auth_repository.get_devices_by_user_id(request.user_id)
+    async def execute(
+        self, request: SendNotificationRequest, sender_user_id: UUID
+    ) -> NotificationResponse:
+        devices = await self.auth_repository.get_devices_by_user_id(sender_user_id)
 
         fcm_tokens = [d.fcm_token for d in devices if d.fcm_token]
 
@@ -33,7 +37,7 @@ class SendNotificationToUserUseCase:
 
         # Add target_user_id to data payload for frontend routing
         payload_data = request.data or {}
-        payload_data["target_user_id"] = str(request.user_id)
+        payload_data["target_user_id"] = str(sender_user_id)
 
         if len(fcm_tokens) == 1:
             try:
@@ -62,14 +66,25 @@ class SendNotificationToUserUseCase:
 
 
 class SendNotificationToDeviceUseCase:
-    """Send push notification to a single device by FCM token."""
+    """Send push notification to a single device by FCM token (must belong to sender)."""
 
-    def __init__(self, notification_service: NotificationServicePort):
+    def __init__(
+        self,
+        auth_repository: AuthRepositoryPort,
+        notification_service: NotificationServicePort,
+    ):
+        self.auth_repository = auth_repository
         self.notification_service = notification_service
 
     async def execute(
-        self, request: SendNotificationToDeviceRequest
+        self, request: SendNotificationToDeviceRequest, sender_user_id: UUID
     ) -> NotificationResponse:
+        owns = await self.auth_repository.user_owns_fcm_token(
+            sender_user_id, request.fcm_token
+        )
+        if not owns:
+            raise ValueError("FCM token is not registered for this user.")
+
         try:
             self.notification_service.send_to_device(
                 request.fcm_token, request.title, request.body, request.data

@@ -6,13 +6,24 @@ from decimal import Decimal
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.entities.family import Family, FamilyMembership, FamilyRole
+from app.application.ports.family_port import FamilyRepositoryPort
+from app.domain.services.family_permission import has_at_least
+
+from app.domain.entities.family import (
+    Family,
+    FamilyInvite,
+    FamilyInviteInboxItem,
+    FamilyInviteStatus,
+    FamilyMembership,
+    FamilyRole,
+)
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
 from app.infrastructure.config.database.postgres.models.family_models import (
+    FamilyInviteModel,
     FamilyMembershipModel,
     FamilyModel,
 )
@@ -20,9 +31,10 @@ from app.infrastructure.config.database.postgres.models.profile_models import (
     HealthDetailModel,
     ProfileModel,
 )
+from app.infrastructure.config.database.postgres.models.user_model import UserModel
 
 
-class FamilyRepositoryPG:
+class FamilyRepositoryPG(FamilyRepositoryPort):
     """PostgreSQL implementation for families / profiles / health_details."""
 
     def __init__(self, session: AsyncSession) -> None:
@@ -38,12 +50,31 @@ class FamilyRepositoryPG:
         raise RuntimeError("Could not generate unique invite_code")
 
     @staticmethod
+    def _role_rank_expr():
+        return sa.case(
+            (FamilyMembershipModel.role == FamilyRole.OWNER.value, 3),
+            (FamilyMembershipModel.role == FamilyRole.ADMIN.value, 2),
+            (FamilyMembershipModel.role == FamilyRole.MEMBER.value, 1),
+            else_=0,
+        )
+
+    @staticmethod
+    def _is_actor_profile(user_id: UUID):
+        return or_(
+            ProfileModel.owner_user_id == user_id,
+            ProfileModel.linked_user_id == user_id,
+        )
+
+    @staticmethod
     def _to_family(m: FamilyModel) -> Family:
         return Family(
             id=m.id,
             family_name=m.family_name,
             invite_code=m.invite_code,
             created_at=m.created_at,
+            created_by=getattr(m, "created_by", None),
+            address=getattr(m, "address", None),
+            avatar_url=getattr(m, "avatar_url", None),
         )
 
     @staticmethod
@@ -55,6 +86,22 @@ class FamilyRepositoryPG:
             role=FamilyRole(m.role),
             added_by=m.added_by,
             created_at=m.created_at,
+            relation_role=getattr(m, "relation_role", None),
+        )
+
+    @staticmethod
+    def _to_invite(m: FamilyInviteModel) -> FamilyInvite:
+        return FamilyInvite(
+            id=m.id,
+            family_id=m.family_id,
+            role=FamilyRole(m.role),
+            status=FamilyInviteStatus(m.status),
+            invited_by=m.invited_by,
+            invited_at=m.invited_at,
+            phone_number=m.phone_number,
+            user_id=m.user_id,
+            relation_role=getattr(m, "relation_role", None),
+            responded_at=m.responded_at,
         )
 
     @staticmethod
@@ -123,7 +170,7 @@ class FamilyRepositoryPG:
             .join(FamilyMembershipModel, FamilyMembershipModel.family_id == FamilyModel.id)
             .join(ProfileModel, ProfileModel.id == FamilyMembershipModel.profile_id)
             .where(
-                ProfileModel.linked_user_id == user_id,
+                self._is_actor_profile(user_id),
                 ProfileModel.deleted_at.is_(None),
             )
             .distinct()
@@ -136,17 +183,20 @@ class FamilyRepositoryPG:
         family_id: UUID,
         user_id: UUID,
     ) -> FamilyMembership | None:
+        rank_expr = self._role_rank_expr()
         stmt = (
             select(FamilyMembershipModel)
             .join(ProfileModel, ProfileModel.id == FamilyMembershipModel.profile_id)
             .where(
                 FamilyMembershipModel.family_id == family_id,
-                ProfileModel.linked_user_id == user_id,
+                self._is_actor_profile(user_id),
                 ProfileModel.deleted_at.is_(None),
             )
+            .order_by(rank_expr.desc(), FamilyMembershipModel.created_at.asc())
+            .limit(1)
         )
         r = await self.session.execute(stmt)
-        row = r.scalar_one_or_none()
+        row = r.scalars().first()
         return self._to_membership(row) if row else None
 
     async def get_membership(self, membership_id: UUID) -> FamilyMembership | None:
@@ -174,6 +224,37 @@ class FamilyRepositoryPG:
         await self.session.refresh(m)
         return self._to_membership(m)
 
+    async def transfer_family_owner(
+        self,
+        *,
+        family_id: UUID,
+        new_owner_membership_id: UUID,
+        changed_by: UUID,
+    ) -> FamilyMembership | None:
+        _ = changed_by
+        stmt = (
+            select(FamilyMembershipModel)
+            .where(FamilyMembershipModel.family_id == family_id)
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        memberships = list(result.scalars().all())
+        if not memberships:
+            return None
+
+        target = next((m for m in memberships if m.id == new_owner_membership_id), None)
+        if target is None:
+            return None
+
+        for membership in memberships:
+            if membership.id != target.id and membership.role == FamilyRole.OWNER.value:
+                membership.role = FamilyRole.ADMIN.value
+        target.role = FamilyRole.OWNER.value
+
+        await self.session.flush()
+        await self.session.refresh(target)
+        return self._to_membership(target)
+
     async def delete_membership(self, membership_id: UUID) -> bool:
         m = await self.session.get(FamilyMembershipModel, membership_id)
         if m is None:
@@ -186,11 +267,19 @@ class FamilyRepositoryPG:
         self,
         *,
         family_name: str,
+        address: str | None,
+        avatar_url: str | None,
         creator_user_id: UUID,
         creator_full_name: str,
     ) -> tuple[Family, Profile, FamilyMembership]:
         invite = await self._generate_unique_invite_code()
-        fam = FamilyModel(family_name=family_name.strip(), invite_code=invite)
+        fam = FamilyModel(
+            family_name=family_name.strip(),
+            address=address,
+            avatar_url=avatar_url,
+            invite_code=invite,
+            created_by=creator_user_id,
+        )
         self.session.add(fam)
         await self.session.flush()
 
@@ -206,6 +295,7 @@ class FamilyRepositoryPG:
             family_id=fam.id,
             profile_id=prof.id,
             role=FamilyRole.OWNER.value,
+            relation_role=None,
             added_by=creator_user_id,
         )
         self.session.add(mem)
@@ -246,12 +336,14 @@ class FamilyRepositoryPG:
         family_id: UUID,
         profile_id: UUID,
         role: FamilyRole,
+        relation_role: str | None,
         added_by: UUID,
     ) -> FamilyMembership:
         mem = FamilyMembershipModel(
             family_id=family_id,
             profile_id=profile_id,
             role=role.value,
+            relation_role=relation_role,
             added_by=added_by,
         )
         self.session.add(mem)
@@ -281,6 +373,59 @@ class FamilyRepositoryPG:
         r = await self.session.execute(stmt)
         return r.scalar_one_or_none() is not None
 
+    async def list_family_ids_for_profile(self, profile_id: UUID) -> list[UUID]:
+        stmt = select(FamilyMembershipModel.family_id).where(
+            FamilyMembershipModel.profile_id == profile_id,
+        )
+        r = await self.session.execute(stmt)
+        return list(r.scalars().all())
+
+    async def user_can_edit_profile(self, profile_id: UUID, user_id: UUID) -> bool:
+        p = await self.get_profile(profile_id)
+        if p is None:
+            return False
+        if p.owner_user_id == user_id or p.linked_user_id == user_id:
+            return True
+        for fid in await self.list_family_ids_for_profile(profile_id):
+            m = await self.get_user_membership_in_family(fid, user_id)
+            if m is not None and has_at_least(m.role, FamilyRole.ADMIN):
+                return True
+        return False
+
+    async def user_has_family_access_to_profile(self, profile_id: UUID, user_id: UUID) -> bool:
+        for fid in await self.list_family_ids_for_profile(profile_id):
+            m = await self.get_user_membership_in_family(fid, user_id)
+            if m is not None:
+                return True
+        return False
+
+    async def user_can_view_medical_records(self, profile_id: UUID, user_id: UUID) -> bool:
+        p = await self.get_profile(profile_id)
+        if p is None or p.deleted_at is not None:
+            return False
+        if p.owner_user_id == user_id or p.linked_user_id == user_id:
+            return True
+        return await self.user_has_family_access_to_profile(profile_id, user_id)
+
+    async def user_can_write_medical_records(self, profile_id: UUID, user_id: UUID) -> bool:
+        p = await self.get_profile(profile_id)
+        if p is None or p.deleted_at is not None:
+            return False
+        if p.owner_user_id == user_id or p.linked_user_id == user_id:
+            return True
+        for fid in await self.list_family_ids_for_profile(profile_id):
+            m = await self.get_user_membership_in_family(fid, user_id)
+            if m is not None and has_at_least(m.role, FamilyRole.ADMIN):
+                return True
+        return False
+
+    async def user_can_hard_delete_medical_record(self, profile_id: UUID, user_id: UUID) -> bool:
+        for fid in await self.list_family_ids_for_profile(profile_id):
+            m = await self.get_user_membership_in_family(fid, user_id)
+            if m is not None and m.role in (FamilyRole.OWNER, FamilyRole.ADMIN):
+                return True
+        return False
+
     async def list_profiles_in_family(self, family_id: UUID) -> list[Profile]:
         stmt = (
             select(ProfileModel)
@@ -308,6 +453,32 @@ class FamilyRepositoryPG:
             out.append((self._to_membership(mem), self._to_profile(prof)))
         return out
 
+    async def get_member_row(self, membership_id: UUID) -> tuple[FamilyMembership, Profile] | None:
+        stmt = (
+            select(FamilyMembershipModel, ProfileModel)
+            .join(ProfileModel, ProfileModel.id == FamilyMembershipModel.profile_id)
+            .where(
+                FamilyMembershipModel.id == membership_id,
+                ProfileModel.deleted_at.is_(None),
+            )
+        )
+        r = await self.session.execute(stmt)
+        row = r.one_or_none()
+        if row is None:
+            return None
+        mem, prof = row
+        return self._to_membership(mem), self._to_profile(prof)
+
+    async def list_health_for_profiles(self, profile_ids: list[UUID]) -> dict[UUID, HealthDetail]:
+        if not profile_ids:
+            return {}
+        stmt = select(HealthDetailModel).where(HealthDetailModel.profile_id.in_(profile_ids))
+        result = await self.session.execute(stmt)
+        out: dict[UUID, HealthDetail] = {}
+        for row in result.scalars().all():
+            out[row.profile_id] = self._to_health(row)
+        return out
+
     async def create_profile_in_family(
         self,
         *,
@@ -315,9 +486,14 @@ class FamilyRepositoryPG:
         owner_user_id: UUID,
         full_name: str,
         role: FamilyRole,
+        relation_role: str | None,
         added_by: UUID,
         dob: date | None = None,
         gender: str | None = None,
+        height_cm: Decimal | None = None,
+        weight_kg: Decimal | None = None,
+        address: str | None = None,
+        avatar_url: str | None = None,
         linked_user_id: UUID | None = None,
     ) -> tuple[Profile, FamilyMembership]:
         prof = ProfileModel(
@@ -326,6 +502,10 @@ class FamilyRepositoryPG:
             full_name=full_name.strip(),
             dob=dob,
             gender=gender,
+            height_cm=height_cm,
+            weight_kg=weight_kg,
+            address=address,
+            avatar_url=avatar_url,
         )
         self.session.add(prof)
         await self.session.flush()
@@ -334,6 +514,7 @@ class FamilyRepositoryPG:
             family_id=family_id,
             profile_id=prof.id,
             role=role.value,
+            relation_role=relation_role,
             added_by=added_by,
         )
         self.session.add(mem)
@@ -449,3 +630,172 @@ class FamilyRepositoryPG:
         await self.session.flush()
         await self.session.refresh(m)
         return self._to_health(m)
+
+    async def find_pending_invite(
+        self,
+        *,
+        family_id: UUID,
+        user_id: UUID | None,
+        phone_number: str | None,
+    ) -> FamilyInvite | None:
+        conditions = [FamilyInviteModel.family_id == family_id, FamilyInviteModel.status == FamilyInviteStatus.PENDING.value]
+        target_match: list = []
+        if user_id is not None:
+            target_match.append(FamilyInviteModel.user_id == user_id)
+        if phone_number is not None:
+            target_match.append(FamilyInviteModel.phone_number == phone_number)
+        if not target_match:
+            return None
+        conditions.append(or_(*target_match))
+
+        stmt = (
+            select(FamilyInviteModel)
+            .where(and_(*conditions))
+            .order_by(FamilyInviteModel.invited_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return self._to_invite(model) if model else None
+
+    async def create_family_invite(
+        self,
+        *,
+        family_id: UUID,
+        user_id: UUID | None,
+        phone_number: str | None,
+        role: FamilyRole,
+        relation_role: str | None,
+        invited_by: UUID,
+    ) -> FamilyInvite:
+        invite = FamilyInviteModel(
+            family_id=family_id,
+            user_id=user_id,
+            phone_number=phone_number,
+            role=role.value,
+            relation_role=relation_role,
+            status=FamilyInviteStatus.PENDING.value,
+            invited_by=invited_by,
+        )
+        self.session.add(invite)
+        await self.session.flush()
+        await self.session.refresh(invite)
+        return self._to_invite(invite)
+
+    async def get_family_invite(self, invite_id: UUID) -> FamilyInvite | None:
+        model = await self.session.get(FamilyInviteModel, invite_id)
+        return self._to_invite(model) if model else None
+
+    async def update_family_invite_status(
+        self,
+        invite_id: UUID,
+        status: FamilyInviteStatus,
+    ) -> FamilyInvite | None:
+        model = await self.session.get(FamilyInviteModel, invite_id)
+        if model is None:
+            return None
+        model.status = status.value
+        model.responded_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        await self.session.refresh(model)
+        return self._to_invite(model)
+
+    async def list_family_invites(self, family_id: UUID) -> list[FamilyInvite]:
+        stmt = (
+            select(FamilyInviteModel)
+            .where(FamilyInviteModel.family_id == family_id)
+            .order_by(FamilyInviteModel.invited_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return [self._to_invite(row) for row in result.scalars().all()]
+
+    async def _family_member_count(self, family_id: UUID) -> int:
+        stmt = (
+            select(func.count(FamilyMembershipModel.id))
+            .join(ProfileModel, ProfileModel.id == FamilyMembershipModel.profile_id)
+            .where(
+                FamilyMembershipModel.family_id == family_id,
+                ProfileModel.deleted_at.is_(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one() or 0)
+
+    async def _inviter_name_and_role(
+        self,
+        *,
+        family_id: UUID,
+        inviter_user_id: UUID,
+    ) -> tuple[str | None, FamilyRole | None]:
+        stmt = (
+            select(ProfileModel.full_name, FamilyMembershipModel.role)
+            .join(FamilyMembershipModel, FamilyMembershipModel.profile_id == ProfileModel.id)
+            .where(
+                FamilyMembershipModel.family_id == family_id,
+                self._is_actor_profile(inviter_user_id),
+                ProfileModel.deleted_at.is_(None),
+            )
+            .order_by(self._role_rank_expr().desc(), FamilyMembershipModel.created_at.asc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        row = result.one_or_none()
+        if row is None:
+            return None, None
+        name, role = row
+        return name, FamilyRole(role)
+
+    async def list_invites_for_user_with_context(
+        self,
+        *,
+        user_id: UUID,
+        status: FamilyInviteStatus | None,
+        offset: int,
+        limit: int,
+    ) -> list[FamilyInviteInboxItem]:
+        user = await self.session.get(UserModel, user_id)
+        phone_number = user.phone_number.strip() if user and user.phone_number else None
+
+        predicate = [FamilyInviteModel.user_id == user_id]
+        if phone_number:
+            predicate.append(
+                and_(
+                    FamilyInviteModel.user_id.is_(None),
+                    FamilyInviteModel.phone_number == phone_number,
+                )
+            )
+
+        stmt = (
+            select(FamilyInviteModel)
+            .where(or_(*predicate))
+            .order_by(FamilyInviteModel.invited_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        if status is not None:
+            stmt = stmt.where(FamilyInviteModel.status == status.value)
+
+        result = await self.session.execute(stmt)
+        invites = [self._to_invite(row) for row in result.scalars().all()]
+
+        out: list[FamilyInviteInboxItem] = []
+        for invite in invites:
+            fam = await self.session.get(FamilyModel, invite.family_id)
+            if fam is None:
+                continue
+            member_count = await self._family_member_count(invite.family_id)
+            inviter_name, inviter_role = await self._inviter_name_and_role(
+                family_id=invite.family_id,
+                inviter_user_id=invite.invited_by,
+            )
+            out.append(
+                FamilyInviteInboxItem(
+                    invite=invite,
+                    family_name=fam.family_name,
+                    family_avatar_url=fam.avatar_url,
+                    family_member_count=member_count,
+                    inviter_name=inviter_name,
+                    inviter_role=inviter_role,
+                )
+            )
+        return out

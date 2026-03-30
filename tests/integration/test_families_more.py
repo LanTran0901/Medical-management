@@ -30,25 +30,25 @@ def test_case_c_member_patch_health_forbidden(client) -> None:
         headers=auth_headers(owner_tok),
     )
     assert cr.status_code == 201, cr.text
-    family_id = cr.json()["family"]["id"]
-    owner_profile_id = cr.json()["profile"]["id"]
+    family_id = cr.json()["id"]
+    owner_profile_id = cr.json()["members"][0]["profile"]["id"]
 
     jr = client.post(
         "/families/join",
-        json={"invite_code": cr.json()["family"]["invite_code"], "full_name": "Member H"},
+        json={"invite_code": cr.json()["invite_code"], "full_name": "Member H"},
         headers=auth_headers(member_tok),
     )
     assert jr.status_code == 200, jr.text
 
     patch = client.patch(
-        f"/families/{family_id}/profiles/{owner_profile_id}/health",
+        f"/profiles/{owner_profile_id}/health",
         json={"notes": "try"},
         headers=auth_headers(member_tok),
     )
     assert patch.status_code == 403
 
 
-def test_case_d_profile_not_in_this_family_returns_404(client) -> None:
+def test_case_d_profile_not_in_scope_returns_403(client) -> None:
     """SC-001 (d): member family F1 gọi profile chỉ thuộc F2 → 404."""
     u1 = register_user(client)
     u2 = register_user(client)
@@ -61,7 +61,7 @@ def test_case_d_profile_not_in_this_family_returns_404(client) -> None:
         headers=auth_headers(tok1),
     )
     assert c1.status_code == 201
-    f1 = c1.json()["family"]["id"]
+    f1 = c1.json()["id"]
 
     c2 = client.post(
         "/families",
@@ -69,13 +69,10 @@ def test_case_d_profile_not_in_this_family_returns_404(client) -> None:
         headers=auth_headers(tok2),
     )
     assert c2.status_code == 201
-    p2 = c2.json()["profile"]["id"]
+    p2 = c2.json()["members"][0]["profile"]["id"]
 
-    r = client.get(
-        f"/families/{f1}/profiles/{p2}",
-        headers=auth_headers(tok1),
-    )
-    assert r.status_code == 404
+    r = client.get(f"/profiles/{p2}", headers=auth_headers(tok1))
+    assert r.status_code == 403
 
 
 def test_join_invalid_invite_code_returns_404(client) -> None:
@@ -101,7 +98,7 @@ def test_join_twice_same_family_returns_409(client) -> None:
         headers=auth_headers(owner_tok),
     )
     assert cr.status_code == 201
-    invite = cr.json()["family"]["invite_code"]
+    invite = cr.json()["invite_code"]
 
     j1 = client.post(
         "/families/join",
@@ -130,8 +127,8 @@ def test_rotate_invite_invalidates_old_code(client) -> None:
         headers=auth_headers(owner_tok),
     )
     assert cr.status_code == 201
-    family_id = cr.json()["family"]["id"]
-    old_code = cr.json()["family"]["invite_code"]
+    family_id = cr.json()["id"]
+    old_code = cr.json()["invite_code"]
 
     rot = client.post(
         f"/families/{family_id}/invite/rotate",

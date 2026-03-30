@@ -35,6 +35,14 @@ class UserRepositoryPG(UserRepositoryPort):
             return None
         return self._to_entity(model)
 
+    async def get_by_phone(self, phone_number: str) -> User | None:
+        stmt = select(UserModel).where(UserModel.phone_number == phone_number.strip())
+        result = await self.session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return self._to_entity(model)
+
     async def list_users(self) -> list[User]:
         stmt = (
             select(UserModel)
@@ -52,6 +60,7 @@ class UserRepositoryPG(UserRepositoryPort):
         model.email = user.email
         model.password_hash = user.password_hash
         model.google_id = user.google_id
+        model.phone_number = user.phone_number
         model.status = user.status.value
         model.deleted_at = user.deleted_at
 
@@ -68,6 +77,7 @@ class UserRepositoryPG(UserRepositoryPort):
             created_at=model.created_at,
             password_hash=model.password_hash,
             google_id=model.google_id,
+            phone_number=model.phone_number,
             deleted_at=model.deleted_at,
         )
 
@@ -78,6 +88,7 @@ class UserRepositoryPG(UserRepositoryPort):
             email=user.email,
             password_hash=user.password_hash,
             google_id=user.google_id,
+            phone_number=user.phone_number,
             status=user.status.value,
             created_at=user.created_at,
             deleted_at=user.deleted_at,

@@ -5,9 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.dtos.user_dto import CreateUserRequest, UpdateUserRequest, UserResponse
+from app.application.dtos.user_dto import (
+    PatchUserMeRequest,
+    UpdateUserRequest,
+    UserResponse,
+)
 from app.application.usecases.user_usecases import (
-    CreateUserUseCase,
     DeleteUserUseCase,
     GetUserUseCase,
     ListUsersUseCase,
@@ -23,18 +26,6 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 def get_user_repository(session: AsyncSession = Depends(get_session)) -> UserRepositoryPG:
     return UserRepositoryPG(session)
-
-
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    payload: CreateUserRequest,
-    repository: UserRepositoryPG = Depends(get_user_repository),
-) -> UserResponse:
-    try:
-        user = await CreateUserUseCase(repository).execute(payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return UserResponse.from_entity(user)
 
 
 @router.get("", response_model=list[UserResponse])
@@ -56,6 +47,23 @@ async def get_current_user_profile(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return UserResponse.from_entity(user)
+
+
+@router.patch("/me", response_model=UserResponse, summary="Update current user (e.g. phone_number)")
+async def patch_current_user_me(
+    body: PatchUserMeRequest,
+    current_user: User = Depends(get_current_user),
+    repository: UserRepositoryPG = Depends(get_user_repository),
+) -> UserResponse:
+    try:
+        user = await GetUserUseCase(repository).execute(current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    patch = body.model_dump(exclude_unset=True)
+    if "phone_number" in patch:
+        user.phone_number = patch["phone_number"]
+    updated = await repository.update(user)
+    return UserResponse.from_entity(updated)
 
 
 @router.get("/{user_id}", response_model=UserResponse)

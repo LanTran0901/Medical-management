@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG INSTALL_TEST_DEPS=0
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -7,11 +9,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir pipenv
 
 COPY Pipfile Pipfile.lock ./
 
 RUN pipenv install --system --deploy --ignore-pipfile
+
+RUN if [ "$INSTALL_TEST_DEPS" = "1" ]; then \
+      pip install --no-cache-dir pytest pytest-asyncio pytest-cov; \
+    fi
 
 COPY . .
 
