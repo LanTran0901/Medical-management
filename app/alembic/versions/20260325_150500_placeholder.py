@@ -1,10 +1,9 @@
-"""Placeholder: revision từng tồn tại trên DB / branch khác — không đổi schema.
+"""Placeholder: revision id legacy `20260325_150500` — không đổi schema.
 
-Nếu `alembic_version` = '20260325_150500' mà không có file, `upgrade head` sẽ lỗi.
-File này khớp id đó; chuỗi tiếp theo là 003_mi_01 (003 medicine-inventory-api).
+Chạy sau `20260325_150501` (split medical dictionary) để giữ một nhánh duy nhất tới `003_mi_01`.
 
 Revision ID: 20260325_150500
-Revises: da58e3fdb641
+Revises: 20260325_150501
 Create Date: 2026-03-28
 """
 
@@ -15,7 +14,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "20260325_150500"
-down_revision: Union[str, None] = "da58e3fdb641"
+down_revision: Union[str, None] = "20260325_150501"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

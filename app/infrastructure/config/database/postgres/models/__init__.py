@@ -19,6 +19,7 @@ from app.infrastructure.config.database.postgres.models.vaccination_models impor
     UserVaccinationModel,
     VaccinationDoseModel,
     VaccinationRecommendationModel,
+)
 from app.infrastructure.config.database.postgres.models.medical_dictionary_models import (
     DiseaseModel,
     DrugModel,

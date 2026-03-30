@@ -1,7 +1,7 @@
 """003 medicine-inventory-api: users.phone_number, profile_status enum, medicine/medical columns
 
 Revision ID: 003_mi_01
-Revises: 20260325_150500
+Revises: 20260325_150500 (placeholder; split dictionary is 20260325_150501 → 150500)
 Create Date: 2026-03-28
 """
 

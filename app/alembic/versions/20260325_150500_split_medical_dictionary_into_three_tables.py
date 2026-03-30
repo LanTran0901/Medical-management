@@ -1,7 +1,7 @@
 """split medical dictionary into three tables
 
-Revision ID: 20260325_150500
-Revises: 20260321_120000
+Revision ID: 20260325_150501
+Revises: da58e3fdb641
 Create Date: 2026-03-25 15:05:00
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import ProgrammingError
 
-revision: str = "20260325_150500"
+revision: str = "20260325_150501"
 down_revision: Union[str, None] = "da58e3fdb641"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
