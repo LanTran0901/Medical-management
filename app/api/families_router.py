@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
+from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.dependencies import (
     get_current_user,
@@ -35,6 +37,9 @@ from app.application.usecases.medicine_inventory_usecases import MedicineInvento
 from app.domain.entities.user import User
 
 router = APIRouter(prefix="/families", tags=["families"])
+_INVITE_PREVIEW_RATE_WINDOW_SECONDS = 60
+_INVITE_PREVIEW_RATE_LIMIT = 30
+_invite_preview_hits: dict[str, list[float]] = {}
 
 
 def _handle_family_error(exc: Exception) -> None:
@@ -60,36 +65,27 @@ def _handle_family_error(exc: Exception) -> None:
         ) from exc
 
 
-async def _build_family_contract(
-    *,
-    svc: FamiliesService,
-    family_id: UUID,
-    user_id: UUID,
-    include_invites: bool = False,
-) -> FamilyContractResponse:
-    family = await svc.get_family(family_id, user_id)
-    member_rows = await svc.list_member_details(family_id, user_id)
-    members = [
-        FamilyMemberResponse.from_entities(
-            membership=membership,
-            profile=profile,
-            health=health,
-            current_user_id=user_id,
+def _enforce_invite_preview_rate_limit(client_ip: str) -> None:
+    now = time.time()
+    window_start = now - _INVITE_PREVIEW_RATE_WINDOW_SECONDS
+    hits = _invite_preview_hits.get(client_ip, [])
+    hits = [ts for ts in hits if ts >= window_start]
+    if len(hits) >= _INVITE_PREVIEW_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many preview requests, try again later",
         )
-        for membership, profile, health in member_rows
-    ]
-    invites = None
-    if include_invites:
-        invite_rows = await svc.get_family_invites(family_id, user_id)
-        invites = [FamilyInviteResponse.from_entity(invite) for invite in invite_rows]
-    return FamilyContractResponse.from_parts(
-        family=family,
-        members=members,
-        invites=invites,
-    )
+    hits.append(now)
+    _invite_preview_hits[client_ip] = hits
 
 
-@router.post("", response_model=FamilyContractResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CreateFamilyResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create family",
+    description="Create a family and owner membership/profile",
+)
 async def create_family(
     body: CreateFamilyRequest,
     user: User = Depends(get_current_user),
@@ -114,7 +110,28 @@ async def create_family(
         raise
 
 
-@router.get("", response_model=list[FamilyContractResponse])
+@router.get(
+    "/invite/preview",
+    response_model=InvitePreviewResponse,
+    summary="Preview invite code",
+    description="Public preview for deep-link/QR invite code before login",
+)
+async def preview_invite(
+    request: Request,
+    invite_code: str = Query(..., min_length=1, max_length=64),
+    svc: FamiliesService = Depends(get_families_service),
+) -> InvitePreviewResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    _enforce_invite_preview_rate_limit(client_ip)
+    try:
+        fam = await svc.preview_invite(invite_code)
+        return InvitePreviewResponse(family_name=fam.family_name, invite_code=fam.invite_code)
+    except Exception as e:
+        _handle_family_error(e)
+        raise
+
+
+@router.get("", response_model=list[FamilySummaryResponse], summary="List my families", description="List families the current user belongs to")
 async def list_families(
     user: User = Depends(get_current_user),
     svc: FamiliesService = Depends(get_families_service),
@@ -280,6 +297,8 @@ async def list_members(
     "/{family_id}/profiles",
     response_model=FamilyMemberResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create profile in family",
+    description="Create a profile and membership in the family (OWNER/ADMIN)",
 )
 async def create_profile_in_family(
     family_id: UUID,
@@ -301,7 +320,12 @@ async def create_profile_in_family(
         raise
 
 
-@router.get("/{family_id}/profiles", response_model=list[ProfileResponse])
+@router.get(
+    "/{family_id}/profiles",
+    response_model=list[ProfileResponse],
+    summary="List family profiles",
+    description="List profiles in a family; MEMBER only sees self-linked profiles",
+)
 async def list_profiles(
     family_id: UUID,
     user: User = Depends(get_current_user),

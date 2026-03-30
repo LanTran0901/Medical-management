@@ -24,6 +24,9 @@ from app.application.usecases.medical_records_usecases import MedicalRecordsServ
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
 from app.application.usecases.vaccination_usecases import VaccinationService
 from app.core.config import settings as app_settings
+from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
+from app.application.usecases.family_usecases import FamiliesService
+from app.application.usecases.medical_dictionary_usecases import MedicalDictionaryService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login/swagger")
 
@@ -133,3 +136,9 @@ def get_vaccination_service(
         VaccinationRepositoryPG(session),
         AccessControlService(AccessControlPG(session)),
     )
+
+
+def get_medical_dictionary_service(
+    session: AsyncSession = Depends(get_session),
+) -> MedicalDictionaryService:
+    return MedicalDictionaryService(MedicalDictionaryRepository(session))

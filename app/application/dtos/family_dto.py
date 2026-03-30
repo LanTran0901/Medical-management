@@ -113,6 +113,16 @@ class InviteByPhoneRequest(BaseModel):
         return normalized
 
 
+class CreatePersonalProfileRequest(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+
+class InvitePreviewResponse(BaseModel):
+    family_name: str
+    invite_code: str
+    valid: bool = True
+
+
 class PatchFamilyRequest(BaseModel):
     name: str = Field(validation_alias=AliasChoices("name", "family_name"), min_length=1, max_length=255)
 

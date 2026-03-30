@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 class Settings(BaseSettings):
     app_name: str = "Medical Management API"
+    data_dir: str = "app/data"
 
     mongodb_uri: str
     mongodb_db_name: str | None = None

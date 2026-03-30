@@ -15,6 +15,7 @@ from app.api.profile_router import router as profile_router
 from app.api.medical_router import router as medical_router
 from app.api.vaccination_router import router as vaccination_router
 from app.api.files_router import router as files_router
+from app.api.medical_dictionary_router import router as medical_dictionary_router
 from app.routes.rag import router as rag_router
 from app.core.config import settings
 from app.infrastructure.config.database.mongodb.connection import (
@@ -67,6 +68,7 @@ app.include_router(profile_router)
 app.include_router(medical_router)
 app.include_router(vaccination_router)
 app.include_router(files_router)
+app.include_router(medical_dictionary_router)
 app.include_router(notification_router)
 app.include_router(rag_router)
 

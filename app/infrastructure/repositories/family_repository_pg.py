@@ -7,6 +7,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.family_port import FamilyRepositoryPort
@@ -313,6 +314,28 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         r = await self.session.execute(stmt)
         m = r.scalar_one_or_none()
         return self._to_profile(m) if m else None
+
+    async def list_linked_profiles_for_user(
+        self,
+        user_id: UUID,
+        *,
+        profile_scope: str = "all",
+    ) -> list[Profile]:
+        """`profile_scope`: all | without_family (không hàng family_memberships) | with_family (có ít nhất một)."""
+        mem_exists = exists().where(FamilyMembershipModel.profile_id == ProfileModel.id)
+        stmt = select(ProfileModel).where(
+            ProfileModel.linked_user_id == user_id,
+            ProfileModel.deleted_at.is_(None),
+        )
+        if profile_scope == "without_family":
+            stmt = stmt.where(~mem_exists)
+        elif profile_scope == "with_family":
+            stmt = stmt.where(mem_exists)
+        elif profile_scope != "all":
+            raise ValueError(f"Invalid profile_scope: {profile_scope}")
+        stmt = stmt.order_by(ProfileModel.created_at)
+        r = await self.session.execute(stmt)
+        return [self._to_profile(x) for x in r.scalars().all()]
 
     async def create_personal_profile(
         self,

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.user_dto import (
@@ -10,6 +12,9 @@ from app.application.dtos.user_dto import (
     UpdateUserRequest,
     UserResponse,
 )
+from app.application.dtos.family_dto import CreatePersonalProfileRequest, ProfileResponse
+from app.application.family_errors import ConflictError
+from app.application.dtos.user_dto import CreateUserRequest, UpdateUserRequest, UserResponse
 from app.application.usecases.user_usecases import (
     DeleteUserUseCase,
     GetUserUseCase,
@@ -18,7 +23,8 @@ from app.application.usecases.user_usecases import (
 )
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, get_families_service
+from app.application.usecases.family_usecases import FamiliesService
 from app.domain.entities.user import User
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -36,7 +42,52 @@ async def list_users(
     return [UserResponse.from_entity(user) for user in users]
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get(
+    "/me/profiles",
+    response_model=list[ProfileResponse],
+    summary="List my linked profiles",
+    description="List profiles linked to the authenticated user with optional scope filter",
+)
+async def list_my_profiles(
+    profile_scope: Literal["all", "without_family", "with_family"] = Query(
+        "all",
+        description="all | without_family (chưa có membership) | with_family (đã thuộc ít nhất một gia đình)",
+    ),
+    current_user: User = Depends(get_current_user),
+    svc: FamiliesService = Depends(get_families_service),
+) -> list[ProfileResponse]:
+    """Các profile có `linked_user_id` = user hiện tại; lọc theo đã/chưa gia đình."""
+    profiles = await svc.list_my_linked_profiles(current_user.id, profile_scope=profile_scope)
+    return [ProfileResponse.from_entity(p) for p in profiles]
+
+
+@router.post(
+    "/me/personal-profile",
+    response_model=ProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create my personal profile",
+    description="Create a PERSONAL profile for the authenticated user without creating membership",
+)
+async def create_my_personal_profile(
+    body: CreatePersonalProfileRequest,
+    current_user: User = Depends(get_current_user),
+    svc: FamiliesService = Depends(get_families_service),
+) -> ProfileResponse:
+    try:
+        profile = await svc.create_my_personal_profile(current_user.id, body.full_name)
+        return ProfileResponse.from_entity(profile)
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message or "Conflict") from exc
+    except (IntegrityError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get current user",
+    description="Return authenticated user's profile",
+)
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user),
     repository: UserRepositoryPG = Depends(get_user_repository),
@@ -81,7 +132,12 @@ async def get_user(
     return UserResponse.from_entity(user)
 
 
-@router.put("/{user_id}", response_model=UserResponse)
+@router.put(
+    "/{user_id}",
+    response_model=UserResponse,
+    summary="Update user",
+    description="Update a user by id if requester is the same user",
+)
 async def update_user(
     user_id: UUID,
     payload: UpdateUserRequest,
@@ -97,7 +153,12 @@ async def update_user(
     return UserResponse.from_entity(user)
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete user",
+    description="Delete a user by id if requester is the same user",
+)
 async def delete_user(
     user_id: UUID,
     repository: UserRepositoryPG = Depends(get_user_repository),

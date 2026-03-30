@@ -1,5 +1,8 @@
 """Add composite keys for user device
 
+Aligns DB with UserDeviceModel / RefreshTokenModel: user_devices PK (id, user_id)
+and refresh_tokens FK (device_id, user_id) -> user_devices.
+
 Revision ID: da58e3fdb641
 Revises: 20260321_120000
 Create Date: 2026-03-23 14:36:47.943927

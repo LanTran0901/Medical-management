@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     image: medical-management-api:latest
     container_name: medical-migrate
-    restart: "no"
+    restart: on-failure:3
     env_file:
       - .env
     working_dir: /app/app
