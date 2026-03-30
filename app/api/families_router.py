@@ -26,6 +26,7 @@ from app.application.dtos.family_dto import (
     InviteActionResponse,
     InviteByPhoneRequest,
     InviteByPhoneResponse,
+    InvitePreviewResponse,
     JoinFamilyRequest,
     PatchFamilyRequest,
     ProfileResponse,
@@ -81,7 +82,7 @@ def _enforce_invite_preview_rate_limit(client_ip: str) -> None:
 
 @router.post(
     "",
-    response_model=CreateFamilyResponse,
+    response_model=FamilyContractResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create family",
     description="Create a family and owner membership/profile",
@@ -131,7 +132,12 @@ async def preview_invite(
         raise
 
 
-@router.get("", response_model=list[FamilySummaryResponse], summary="List my families", description="List families the current user belongs to")
+@router.get(
+    "",
+    response_model=list[FamilyContractResponse],
+    summary="List my families",
+    description="List families the current user belongs to",
+)
 async def list_families(
     user: User = Depends(get_current_user),
     svc: FamiliesService = Depends(get_families_service),
