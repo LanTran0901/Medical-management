@@ -357,9 +357,9 @@ pipenv run alembic --config app/alembic.ini upgrade head
 
 # 4. Start API
 pipenv run start
-# → http://localhost:8080/
-# → http://localhost:8080/health
-# → http://localhost:8080/docs
+# → http://localhost:7543/
+# → http://localhost:7543/health
+# → http://localhost:7543/docs
 ```
 
 ### Docker (full stack)

@@ -29,4 +29,4 @@ firebase-admin = "*"
 python_version = "3.12"
 
 [scripts]
-start = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload"
+start = "uvicorn app.main:app --host 0.0.0.0 --port 7543 --reload"
