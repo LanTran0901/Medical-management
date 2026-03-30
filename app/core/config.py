@@ -56,6 +56,14 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MEDICAL_UPLOAD_MAX_MB", "medical_upload_max_mb"),
         description="Max upload size per file in MB; None disables limit in settings (enforce in handler).",
     )
+    family_public_invite_ttl_seconds: int = Field(
+        default=86_400,
+        validation_alias=AliasChoices(
+            "FAMILY_PUBLIC_INVITE_TTL_SECONDS",
+            "family_public_invite_ttl_seconds",
+        ),
+        description="TTL for new public family invite codes (single-use); default 24h.",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from app.domain.entities.family import (
     FamilyInviteStatus,
     FamilyMembership,
     FamilyRole,
+    PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
@@ -27,11 +28,43 @@ class FamilyRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def create_pending_public_invite(
+        self,
+        *,
+        family_id: UUID,
+        invite_code: str,
+        expires_at: datetime,
+        created_by: UUID,
+    ) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def preview_public_invite(self, code: str) -> PublicInvitePreview | None:
+        """Return preview if invite_code exists in family_public_invites; else None."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def consume_pending_public_invite(self, code: str, consumed_by: UUID) -> Family | None:
+        """Atomically mark token CONSUMED if valid; return family when successful."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def revoke_pending_public_invite_for_family(self, family_id: UUID) -> None:
+        """Revoke the single PENDING public token for this family (if any)."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def update_family_name(self, family_id: UUID, name: str) -> Family | None:
         raise NotImplementedError
 
     @abstractmethod
-    async def rotate_invite(self, family_id: UUID) -> Family | None:
+    async def rotate_invite(
+        self,
+        family_id: UUID,
+        *,
+        public_invite_expires_at: datetime,
+        rotated_by: UUID,
+    ) -> Family | None:
         raise NotImplementedError
 
     @abstractmethod
@@ -77,6 +110,7 @@ class FamilyRepositoryPort(ABC):
         avatar_url: str | None,
         creator_user_id: UUID,
         creator_full_name: str,
+        public_invite_expires_at: datetime,
     ) -> tuple[Family, Profile, FamilyMembership]:
         raise NotImplementedError
 

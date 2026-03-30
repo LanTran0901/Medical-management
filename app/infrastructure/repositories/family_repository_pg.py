@@ -6,8 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import and_, delete, func, or_, select
-from sqlalchemy import delete, exists, select
+from sqlalchemy import and_, delete, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.family_port import FamilyRepositoryPort
@@ -19,7 +18,9 @@ from app.domain.entities.family import (
     FamilyInviteInboxItem,
     FamilyInviteStatus,
     FamilyMembership,
+    FamilyPublicInviteStatus,
     FamilyRole,
+    PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
@@ -27,6 +28,7 @@ from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
     FamilyMembershipModel,
     FamilyModel,
+    FamilyPublicInviteModel,
 )
 from app.infrastructure.config.database.postgres.models.profile_models import (
     HealthDetailModel,
@@ -44,9 +46,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
     async def _generate_unique_invite_code(self) -> str:
         for _ in range(20):
             code = secrets.token_urlsafe(12)[:16]
-            stmt = select(FamilyModel.id).where(FamilyModel.invite_code == code).limit(1)
-            r = await self.session.execute(stmt)
-            if r.scalar_one_or_none() is None:
+            stmt_f = select(FamilyModel.id).where(FamilyModel.invite_code == code).limit(1)
+            stmt_p = select(FamilyPublicInviteModel.id).where(FamilyPublicInviteModel.invite_code == code).limit(1)
+            rf = await self.session.execute(stmt_f)
+            rp = await self.session.execute(stmt_p)
+            if rf.scalar_one_or_none() is None and rp.scalar_one_or_none() is None:
                 return code
         raise RuntimeError("Could not generate unique invite_code")
 
@@ -142,10 +146,93 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         return self._to_family(m) if m else None
 
     async def find_family_by_invite_code(self, code: str) -> Family | None:
-        stmt = select(FamilyModel).where(FamilyModel.invite_code == code.strip())
+        """Resolve family only when a non-expired PENDING public invite exists for code."""
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(FamilyModel)
+            .join(FamilyPublicInviteModel, FamilyPublicInviteModel.family_id == FamilyModel.id)
+            .where(
+                FamilyPublicInviteModel.invite_code == code.strip(),
+                FamilyPublicInviteModel.status == FamilyPublicInviteStatus.PENDING.value,
+                FamilyPublicInviteModel.expires_at > now,
+            )
+        )
         r = await self.session.execute(stmt)
         m = r.scalar_one_or_none()
         return self._to_family(m) if m else None
+
+    async def create_pending_public_invite(
+        self,
+        *,
+        family_id: UUID,
+        invite_code: str,
+        expires_at: datetime,
+        created_by: UUID,
+    ) -> None:
+        row = FamilyPublicInviteModel(
+            family_id=family_id,
+            invite_code=invite_code.strip(),
+            expires_at=expires_at,
+            status=FamilyPublicInviteStatus.PENDING.value,
+            created_by=created_by,
+        )
+        self.session.add(row)
+        await self.session.flush()
+
+    async def preview_public_invite(self, code: str) -> PublicInvitePreview | None:
+        stmt = (
+            select(FamilyPublicInviteModel, FamilyModel.family_name)
+            .join(FamilyModel, FamilyModel.id == FamilyPublicInviteModel.family_id)
+            .where(FamilyPublicInviteModel.invite_code == code.strip())
+        )
+        r = await self.session.execute(stmt)
+        row = r.one_or_none()
+        if row is None:
+            return None
+        inv, family_name = row[0], row[1]
+        now = datetime.now(timezone.utc)
+        status = FamilyPublicInviteStatus(inv.status)
+        valid = status == FamilyPublicInviteStatus.PENDING and inv.expires_at > now
+        return PublicInvitePreview(
+            family_id=inv.family_id,
+            family_name=family_name,
+            invite_code=inv.invite_code,
+            valid=valid,
+            expires_at=inv.expires_at,
+        )
+
+    async def consume_pending_public_invite(self, code: str, consumed_by: UUID) -> Family | None:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(FamilyPublicInviteModel)
+            .where(
+                FamilyPublicInviteModel.invite_code == code.strip(),
+                FamilyPublicInviteModel.status == FamilyPublicInviteStatus.PENDING.value,
+                FamilyPublicInviteModel.expires_at > now,
+            )
+            .values(
+                status=FamilyPublicInviteStatus.CONSUMED.value,
+                consumed_at=now,
+                consumed_by=consumed_by,
+            )
+            .returning(FamilyPublicInviteModel.family_id)
+        )
+        res = await self.session.execute(stmt)
+        fam_id = res.scalar_one_or_none()
+        if fam_id is None:
+            return None
+        return await self.get_family(fam_id)
+
+    async def revoke_pending_public_invite_for_family(self, family_id: UUID) -> None:
+        await self.session.execute(
+            update(FamilyPublicInviteModel)
+            .where(
+                FamilyPublicInviteModel.family_id == family_id,
+                FamilyPublicInviteModel.status == FamilyPublicInviteStatus.PENDING.value,
+            )
+            .values(status=FamilyPublicInviteStatus.REVOKED.value)
+        )
+        await self.session.flush()
 
     async def update_family_name(self, family_id: UUID, name: str) -> Family | None:
         m = await self.session.get(FamilyModel, family_id)
@@ -156,12 +243,26 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         await self.session.refresh(m)
         return self._to_family(m)
 
-    async def rotate_invite(self, family_id: UUID) -> Family | None:
+    async def rotate_invite(
+        self,
+        family_id: UUID,
+        *,
+        public_invite_expires_at: datetime,
+        rotated_by: UUID,
+    ) -> Family | None:
         m = await self.session.get(FamilyModel, family_id)
         if m is None:
             return None
-        m.invite_code = await self._generate_unique_invite_code()
+        await self.revoke_pending_public_invite_for_family(family_id)
+        new_code = await self._generate_unique_invite_code()
+        m.invite_code = new_code
         await self.session.flush()
+        await self.create_pending_public_invite(
+            family_id=family_id,
+            invite_code=new_code,
+            expires_at=public_invite_expires_at,
+            created_by=rotated_by,
+        )
         await self.session.refresh(m)
         return self._to_family(m)
 
@@ -272,6 +373,7 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         avatar_url: str | None,
         creator_user_id: UUID,
         creator_full_name: str,
+        public_invite_expires_at: datetime,
     ) -> tuple[Family, Profile, FamilyMembership]:
         invite = await self._generate_unique_invite_code()
         fam = FamilyModel(
@@ -283,6 +385,13 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         )
         self.session.add(fam)
         await self.session.flush()
+
+        await self.create_pending_public_invite(
+            family_id=fam.id,
+            invite_code=invite,
+            expires_at=public_invite_expires_at,
+            created_by=creator_user_id,
+        )
 
         prof = ProfileModel(
             owner_user_id=creator_user_id,

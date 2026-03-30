@@ -154,8 +154,13 @@ async def preview_invite(
     client_ip = request.client.host if request.client else "unknown"
     _enforce_invite_preview_rate_limit(client_ip)
     try:
-        fam = await svc.preview_invite(invite_code)
-        return InvitePreviewResponse(family_name=fam.family_name, invite_code=fam.invite_code)
+        prev = await svc.preview_invite(invite_code)
+        return InvitePreviewResponse(
+            family_name=prev.family_name,
+            invite_code=prev.invite_code,
+            valid=prev.valid,
+            expires_at=prev.expires_at,
+        )
     except Exception as e:
         _handle_family_error(e)
         raise

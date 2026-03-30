@@ -18,6 +18,12 @@ class FamilyInviteStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class FamilyPublicInviteStatus(StrEnum):
+    PENDING = "PENDING"
+    CONSUMED = "CONSUMED"
+    REVOKED = "REVOKED"
+
+
 @dataclass(frozen=True, slots=True)
 class Family:
     id: UUID
@@ -52,6 +58,17 @@ class FamilyInvite:
     user_id: UUID | None = None
     relation_role: str | None = None
     responded_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PublicInvitePreview:
+    """Public deep-link preview; valid=False when expired, consumed, or revoked."""
+
+    family_id: UUID
+    family_name: str
+    invite_code: str
+    valid: bool
+    expires_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

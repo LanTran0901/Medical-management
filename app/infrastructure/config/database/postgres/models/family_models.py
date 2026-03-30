@@ -25,6 +25,14 @@ family_invite_status_pg = ENUM(
     create_type=False,
 )
 
+family_public_invite_status_pg = ENUM(
+    "PENDING",
+    "CONSUMED",
+    "REVOKED",
+    name="family_public_invite_status",
+    create_type=False,
+)
+
 
 class FamilyModel(Base):
     __tablename__ = "families"
@@ -138,5 +146,48 @@ class FamilyInviteModel(Base):
     )
     responded_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class FamilyPublicInviteModel(Base):
+    __tablename__ = "family_public_invites"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.text("gen_random_uuid()"),
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("families.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    invite_code: Mapped[str] = mapped_column(sa.String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        family_public_invite_status_pg,
+        nullable=False,
+        server_default="PENDING",
+        index=True,
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
+    consumed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
