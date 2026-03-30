@@ -43,8 +43,8 @@ def test_case_b_member_cannot_rotate_invite(client) -> None:
         headers=auth_headers(owner_tok),
     )
     assert cr.status_code == 201, cr.text
-    family_id = cr.json()["family"]["id"]
-    invite = cr.json()["family"]["invite_code"]
+    family_id = cr.json()["id"]
+    invite = cr.json()["invite_code"]
 
     jr = client.post(
         "/families/join",

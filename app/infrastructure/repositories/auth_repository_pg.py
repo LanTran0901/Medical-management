@@ -58,6 +58,18 @@ class AuthRepositoryPG(AuthRepositoryPort):
         models = result.scalars().all()
         return [self._device_to_entity(m) for m in models]
 
+    async def user_owns_fcm_token(self, user_id: UUID, fcm_token: str) -> bool:
+        stmt = (
+            select(UserDeviceModel.id)
+            .where(
+                UserDeviceModel.user_id == user_id,
+                UserDeviceModel.fcm_token == fcm_token,
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def create_refresh_token(self, token: RefreshToken) -> RefreshToken:
         model = self._token_to_model(token)
         self.session.add(model)

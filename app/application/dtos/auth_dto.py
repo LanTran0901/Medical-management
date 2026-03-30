@@ -1,7 +1,29 @@
 from __future__ import annotations
 
+import re
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+E164_PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+
+
+class RegisterRequest(BaseModel):
+    """Public registration — plain password at API boundary; hashed in RegisterUseCase."""
+
+    email: str
+    phone_number: str = Field(..., min_length=8, max_length=16)
+    password: str = Field(..., min_length=6)
+    google_id: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str) -> str:
+        normalized = value.strip()
+        if not E164_PHONE_RE.fullmatch(normalized):
+            raise ValueError("phone_number must be valid E.164 format (e.g. +84901234567)")
+        return normalized
+
 
 class LoginRequest(BaseModel):
     email: str

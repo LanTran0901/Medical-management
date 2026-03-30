@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
     CreateProfileInFamilyRequest,
+    FamilyInviteListRequest,
+    InviteByPhoneRequest,
     JoinFamilyRequest,
     PatchFamilyRequest,
     PatchHealthDetailRequest,
@@ -15,26 +17,48 @@ from app.application.dtos.family_dto import (
     PatchProfileRequest,
 )
 from app.application.family_errors import ConflictError, ForbiddenError, NotFoundError
-from app.domain.entities.family import Family, FamilyMembership, FamilyRole
+from app.application.ports.family_port import FamilyRepositoryPort
+from app.application.ports.user_port import UserRepositoryPort
+from app.application.usecases.access_control_usecases import AccessControlService
+from app.domain.entities.family import (
+    Family,
+    FamilyInvite,
+    FamilyInviteInboxItem,
+    FamilyInviteStatus,
+    FamilyMembership,
+    FamilyRole,
+)
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
 from app.domain.services.family_permission import has_at_least
-from app.infrastructure.repositories.family_repository_pg import FamilyRepositoryPG
-from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
 
 
 class FamiliesService:
     """Application service for families / profiles / health (feature 002)."""
 
-    def __init__(self, repo: FamilyRepositoryPG, users: UserRepositoryPG) -> None:
+    def __init__(
+        self,
+        repo: FamilyRepositoryPort,
+        users: UserRepositoryPort,
+        access: AccessControlService,
+    ) -> None:
         self._repo = repo
         self._users = users
+        self._access = access
 
     async def _membership_or_404(self, family_id: UUID, user_id: UUID) -> FamilyMembership:
-        m = await self._repo.get_user_membership_in_family(family_id, user_id)
-        if m is None:
-            raise NotFoundError("Family not found or not a member")
-        return m
+        return await self._access.require_family_member(family_id, user_id)
+
+    async def _ensure_personal_profile(self, user_id: UUID, full_name: str | None) -> Profile:
+        prof = await self._repo.find_personal_profile_for_user(user_id)
+        if prof is not None:
+            return prof
+        if not full_name or not full_name.strip():
+            raise ValueError("full_name is required when you have no personal profile yet")
+        return await self._repo.create_personal_profile(
+            user_id=user_id,
+            full_name=full_name.strip(),
+        )
 
     async def create_family(
         self,
@@ -42,9 +66,11 @@ class FamiliesService:
         body: CreateFamilyRequest,
     ) -> tuple[Family, Profile, FamilyMembership]:
         return await self._repo.create_family_with_owner_profile(
-            family_name=body.family_name,
+            family_name=body.name,
+            address=body.address,
+            avatar_url=body.avatar_url,
             creator_user_id=user_id,
-            creator_full_name=body.full_name,
+            creator_full_name=body.owner_profile_full_name,
         )
 
     async def list_my_families(self, user_id: UUID) -> list[Family]:
@@ -57,51 +83,178 @@ class FamiliesService:
             raise NotFoundError("Family not found")
         return fam
 
+    async def get_family_invites(self, family_id: UUID, user_id: UUID) -> list[FamilyInvite]:
+        actor = await self._access.require_family_member(family_id, user_id)
+        if not has_at_least(actor.role, FamilyRole.ADMIN):
+            return []
+        return await self._repo.list_family_invites(family_id)
+
     async def patch_family(
         self,
         family_id: UUID,
         user_id: UUID,
         body: PatchFamilyRequest,
     ) -> Family:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_admin(family_id, user_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
             raise ForbiddenError("OWNER or ADMIN required")
-        fam = await self._repo.update_family_name(family_id, body.family_name)
+        fam = await self._repo.update_family_name(family_id, body.name)
         if fam is None:
             raise NotFoundError("Family not found")
         return fam
 
-    async def join_family(self, user_id: UUID, body: JoinFamilyRequest) -> tuple[Family, Profile]:
-        fam = await self._repo.find_family_by_invite_code(body.invite_code)
-        if fam is None:
-            raise NotFoundError("Invalid or expired invite code")
+    async def join_family(self, user_id: UUID, body: JoinFamilyRequest) -> dict:
+        if body.invite_code:
+            fam = await self._repo.find_family_by_invite_code(body.invite_code)
+            if fam is None:
+                raise NotFoundError("Invalid or expired invite code")
+            prof = await self._ensure_personal_profile(user_id, body.full_name)
+            if await self._repo.has_membership(fam.id, prof.id):
+                raise ConflictError("Already a member of this family")
+            try:
+                membership = await self._repo.create_membership(
+                    family_id=fam.id,
+                    profile_id=prof.id,
+                    role=FamilyRole.MEMBER,
+                    relation_role=None,
+                    added_by=user_id,
+                )
+            except IntegrityError as e:
+                raise ConflictError("Already a member of this family") from e
+            return {
+                "mode": "invite_code",
+                "family_id": str(fam.id),
+                "family_name": fam.family_name,
+                "profile_id": str(prof.id),
+                "membership_id": str(membership.id),
+                "message": "Joined family",
+            }
 
-        prof = await self._repo.find_personal_profile_for_user(user_id)
-        if prof is None:
-            if not body.full_name or not body.full_name.strip():
-                raise ValueError("full_name is required when you have no personal profile yet")
-            prof = await self._repo.create_personal_profile(
-                user_id=user_id,
-                full_name=body.full_name,
-            )
+        if body.invite_id is None or body.action is None:
+            raise ValueError("Either invite_code or (action + invite_id) is required")
 
-        if await self._repo.has_membership(fam.id, prof.id):
+        invite = await self._repo.get_family_invite(body.invite_id)
+        if invite is None:
+            raise NotFoundError("Invite not found")
+        if invite.status != FamilyInviteStatus.PENDING:
+            raise ConflictError("Invite has already been responded")
+
+        me = await self._users.get_by_id(user_id)
+        if me is None:
+            raise NotFoundError("User not found")
+
+        matched = invite.user_id == user_id
+        if not matched and invite.phone_number and me.phone_number:
+            matched = invite.phone_number.strip() == me.phone_number.strip()
+        if not matched:
+            raise ForbiddenError("This invite does not belong to current user")
+
+        if body.action == "reject":
+            updated = await self._repo.update_family_invite_status(invite.id, FamilyInviteStatus.REJECTED)
+            if updated is None:
+                raise NotFoundError("Invite not found")
+            return {
+                "mode": "invite_action",
+                "success": True,
+                "invite_id": str(updated.id),
+                "status": updated.status.value.lower(),
+            }
+
+        if invite.role == FamilyRole.OWNER:
+            raise ForbiddenError("Ownership transfer must be done via membership role transfer")
+
+        profile = await self._ensure_personal_profile(user_id, body.full_name)
+        if await self._repo.has_membership(invite.family_id, profile.id):
             raise ConflictError("Already a member of this family")
-
         try:
-            await self._repo.create_membership(
-                family_id=fam.id,
-                profile_id=prof.id,
-                role=FamilyRole.MEMBER,
-                added_by=user_id,
+            membership = await self._repo.create_membership(
+                family_id=invite.family_id,
+                profile_id=profile.id,
+                role=invite.role,
+                relation_role=invite.relation_role,
+                added_by=invite.invited_by,
             )
         except IntegrityError as e:
             raise ConflictError("Already a member of this family") from e
 
-        return fam, prof
+        updated = await self._repo.update_family_invite_status(invite.id, FamilyInviteStatus.ACCEPTED)
+        if updated is None:
+            raise NotFoundError("Invite not found")
+        return {
+            "mode": "invite_action",
+            "success": True,
+            "invite_id": str(updated.id),
+            "status": updated.status.value.lower(),
+            "family_member_id": str(membership.id),
+        }
+
+    async def invite_member_by_phone(
+        self,
+        family_id: UUID,
+        inviter_user_id: UUID,
+        body: InviteByPhoneRequest,
+    ) -> dict:
+        actor = await self._access.require_family_admin(family_id, inviter_user_id)
+        if not has_at_least(actor.role, FamilyRole.ADMIN):
+            raise ForbiddenError("OWNER or ADMIN required")
+        if body.role == FamilyRole.OWNER:
+            raise ForbiddenError("Only current OWNER can assign OWNER via ownership transfer")
+
+        fam = await self._repo.get_family(family_id)
+        if fam is None:
+            raise NotFoundError("Family not found")
+
+        user = await self._users.get_by_phone(body.phone_number)
+        if body.dry_run:
+            if user is None:
+                return {
+                    "dry_run": True,
+                    "found": False,
+                    "user": None,
+                }
+            profile = await self._repo.find_personal_profile_for_user(user.id)
+            return {
+                "dry_run": True,
+                "found": True,
+                "user": {
+                    "id": user.id,
+                    "full_name": profile.full_name if profile else None,
+                    "phone_number": user.phone_number,
+                    "avatar_url": profile.avatar_url if profile else None,
+                    "has_account": True,
+                },
+            }
+
+        target_user_id = user.id if user is not None else body.user_id
+        if user is not None:
+            existing_profile = await self._repo.find_personal_profile_for_user(user.id)
+            if existing_profile is not None and await self._repo.has_membership(fam.id, existing_profile.id):
+                raise ConflictError("User is already a member of this family")
+
+        pending = await self._repo.find_pending_invite(
+            family_id=fam.id,
+            user_id=target_user_id,
+            phone_number=body.phone_number,
+        )
+        if pending is not None:
+            raise ConflictError("Pending invite already exists for this target")
+
+        invite = await self._repo.create_family_invite(
+            family_id=fam.id,
+            user_id=target_user_id,
+            phone_number=body.phone_number,
+            role=body.role,
+            relation_role=body.relation_role,
+            invited_by=inviter_user_id,
+        )
+        return {
+            "dry_run": False,
+            "invite": invite,
+            "family": fam,
+        }
 
     async def rotate_invite(self, family_id: UUID, user_id: UUID) -> Family:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_member(family_id, user_id)
         if m.role != FamilyRole.OWNER:
             raise ForbiddenError("Only OWNER can rotate invite code")
         fam = await self._repo.rotate_invite(family_id)
@@ -114,21 +267,52 @@ class FamiliesService:
         family_id: UUID,
         user_id: UUID,
     ) -> list[tuple[FamilyMembership, Profile]]:
-        await self._membership_or_404(family_id, user_id)
+        await self._access.require_family_member(family_id, user_id)
         return await self._repo.list_members_rows(family_id)
+
+    async def list_member_details(
+        self,
+        family_id: UUID,
+        user_id: UUID,
+    ) -> list[tuple[FamilyMembership, Profile, HealthDetail | None]]:
+        rows = await self.list_members(family_id, user_id)
+        health_map = await self._repo.list_health_for_profiles([p.id for _, p in rows])
+        return [(m, p, health_map.get(p.id)) for m, p in rows]
+
+    async def list_invites_for_user(
+        self,
+        user_id: UUID,
+        query: FamilyInviteListRequest,
+    ) -> list[FamilyInviteInboxItem]:
+        status = FamilyInviteStatus(query.status.upper()) if query.status else None
+        offset = max(query.page - 1, 0) * query.limit
+        return await self._repo.list_invites_for_user_with_context(
+            user_id=user_id,
+            status=status,
+            offset=offset,
+            limit=query.limit,
+        )
 
     async def patch_membership_role(
         self,
-        family_id: UUID,
         membership_id: UUID,
         user_id: UUID,
         body: PatchMembershipRoleRequest,
     ) -> FamilyMembership:
-        if not await self._repo.membership_belongs_to_family(membership_id, family_id):
-            raise NotFoundError("Membership not found")
-        actor = await self._membership_or_404(family_id, user_id)
-        if actor.role != FamilyRole.OWNER:
-            raise ForbiddenError("Only OWNER can change roles")
+        context = await self._access.require_membership_role_edit(membership_id, user_id)
+        if body.role == FamilyRole.OWNER:
+            updated = await self._repo.transfer_family_owner(
+                family_id=context.membership.family_id,
+                new_owner_membership_id=membership_id,
+                changed_by=user_id,
+            )
+            if updated is None:
+                raise NotFoundError("Membership not found")
+            return updated
+
+        if context.membership.role == FamilyRole.OWNER:
+            raise ForbiddenError("Current OWNER cannot be demoted directly; transfer ownership first")
+
         updated = await self._repo.update_membership_role(membership_id, body.role)
         if updated is None:
             raise NotFoundError("Membership not found")
@@ -136,23 +320,10 @@ class FamiliesService:
 
     async def delete_membership(
         self,
-        family_id: UUID,
         membership_id: UUID,
         user_id: UUID,
     ) -> None:
-        if not await self._repo.membership_belongs_to_family(membership_id, family_id):
-            raise NotFoundError("Membership not found")
-        target = await self._repo.get_membership(membership_id)
-        if target is None:
-            raise NotFoundError("Membership not found")
-        prof = await self._repo.get_profile(target.profile_id)
-        actor = await self._membership_or_404(family_id, user_id)
-        is_self = prof is not None and prof.linked_user_id == user_id
-        if is_self:
-            await self._repo.delete_membership(membership_id)
-            return
-        if not has_at_least(actor.role, FamilyRole.ADMIN):
-            raise ForbiddenError("OWNER or ADMIN required to remove other members")
+        await self._access.require_membership_delete(membership_id, user_id)
         await self._repo.delete_membership(membership_id)
 
     async def create_profile(
@@ -161,24 +332,61 @@ class FamiliesService:
         user_id: UUID,
         body: CreateProfileInFamilyRequest,
     ) -> tuple[Profile, FamilyMembership]:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_admin(family_id, user_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
             raise ForbiddenError("OWNER or ADMIN required")
-        owner = await self._users.get_by_id(body.owner_user_id)
+        if body.role == FamilyRole.OWNER:
+            raise ForbiddenError("Only current OWNER can assign OWNER via ownership transfer")
+        owner_user_id = body.owner_user_id or user_id
+        owner = await self._users.get_by_id(owner_user_id)
         if owner is None:
             raise NotFoundError("owner_user_id not found")
-        return await self._repo.create_profile_in_family(
+        profile_full_name = body.full_name
+        dob = body.dob
+        gender = body.gender
+        height_cm = None
+        weight_kg = None
+        address = None
+        avatar_url = None
+        if body.profile is not None:
+            profile_full_name = body.profile.full_name
+            dob = body.profile.date_of_birth
+            gender = body.profile.gender
+            height_cm = body.profile.height_cm
+            weight_kg = body.profile.weight_kg
+            address = body.profile.address
+            avatar_url = body.profile.avatar_url
+
+        prof, membership = await self._repo.create_profile_in_family(
             family_id=family_id,
-            owner_user_id=body.owner_user_id,
-            full_name=body.full_name,
+            owner_user_id=owner_user_id,
+            full_name=profile_full_name,
             role=body.role,
+            relation_role=body.relation_role,
             added_by=user_id,
-            dob=body.dob,
-            gender=body.gender,
+            dob=dob,
+            gender=gender,
+            height_cm=height_cm,
+            weight_kg=weight_kg,
+            address=address,
+            avatar_url=avatar_url,
             linked_user_id=None,
         )
+        if body.health_profile is not None:
+            await self._repo.upsert_health(
+                prof.id,
+                blood_type=body.health_profile.blood_type,
+                chronic_diseases=body.health_profile.chronic_conditions,
+                allergies=body.health_profile.allergies,
+            )
+        return prof, membership
 
     async def list_profiles(self, family_id: UUID, user_id: UUID) -> list[Profile]:
+        await self._access.require_family_member(family_id, user_id)
+        return await self._repo.list_profiles_in_family(family_id)
+
+    async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
+        await self._access.require_family_member(family_id, user_id)
         m = await self._membership_or_404(family_id, user_id)
         rows = await self._repo.list_profiles_in_family(family_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
@@ -229,6 +437,9 @@ class FamiliesService:
         user_id: UUID,
         body: PatchProfileRequest,
     ) -> Profile:
+        m = await self._access.require_family_admin(family_id, user_id)
+        if not has_at_least(m.role, FamilyRole.ADMIN):
+            raise ForbiddenError("OWNER or ADMIN required")
         m = await self._membership_or_404(family_id, user_id)
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
@@ -247,14 +458,14 @@ class FamiliesService:
             weight_kg=body.weight_kg,
             address=body.address,
             avatar_url=body.avatar_url,
-            status=body.status,
+            status=body.status.value if body.status is not None else None,
         )
         if p is None:
             raise NotFoundError("Profile not found")
         return p
 
     async def delete_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> None:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_admin(family_id, user_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
             raise ForbiddenError("OWNER or ADMIN required")
         if not await self._repo.profile_in_family(profile_id, family_id):
@@ -270,7 +481,7 @@ class FamiliesService:
         user_id: UUID,
         target_user_id: UUID,
     ) -> Profile:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_admin(family_id, user_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
             raise ForbiddenError("OWNER or ADMIN required")
         if not await self._repo.profile_in_family(profile_id, family_id):
@@ -292,6 +503,7 @@ class FamiliesService:
         profile_id: UUID,
         user_id: UUID,
     ) -> HealthDetail | None:
+        await self._access.require_family_member(family_id, user_id)
         m = await self._membership_or_404(family_id, user_id)
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
@@ -310,11 +522,84 @@ class FamiliesService:
         user_id: UUID,
         body: PatchHealthDetailRequest,
     ) -> HealthDetail:
-        m = await self._membership_or_404(family_id, user_id)
+        m = await self._access.require_family_admin(family_id, user_id)
         if not has_at_least(m.role, FamilyRole.ADMIN):
             raise ForbiddenError("OWNER or ADMIN required to edit health details")
         if not await self._repo.profile_in_family(profile_id, family_id):
             raise NotFoundError("Profile not found")
+        return await self._repo.upsert_health(
+            profile_id,
+            blood_type=body.blood_type,
+            chronic_diseases=body.chronic_diseases,
+            allergies=body.allergies,
+            emergency_contact=body.emergency_contact,
+            notes=body.notes,
+        )
+
+    async def patch_profile_by_id(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        body: PatchProfileRequest,
+    ) -> Profile:
+        await self._access.require_profile_edit(profile_id, user_id)
+        p = await self._repo.patch_profile(
+            profile_id,
+            full_name=body.full_name,
+            dob=body.dob,
+            gender=body.gender,
+            height_cm=body.height_cm,
+            weight_kg=body.weight_kg,
+            address=body.address,
+            avatar_url=body.avatar_url,
+            status=body.status.value if body.status is not None else None,
+        )
+        if p is None:
+            raise NotFoundError("Profile not found")
+        return p
+
+    async def delete_profile_by_id(self, profile_id: UUID, user_id: UUID) -> None:
+        await self._access.require_profile_edit(profile_id, user_id)
+        ok = await self._repo.soft_delete_profile(profile_id)
+        if not ok:
+            raise NotFoundError("Profile not found")
+
+    async def get_profile_by_id(self, profile_id: UUID, user_id: UUID) -> Profile:
+        await self._access.require_profile_read(profile_id, user_id)
+        p = await self._repo.get_profile(profile_id)
+        if p is None:
+            raise NotFoundError("Profile not found")
+        return p
+
+    async def link_profile_by_id(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        target_user_id: UUID,
+    ) -> Profile:
+        await self._access.require_profile_link(profile_id, user_id)
+        target_user = await self._users.get_by_id(target_user_id)
+        if target_user is None:
+            raise NotFoundError("user_id not found")
+        try:
+            p = await self._repo.link_profile_to_user(profile_id, target_user_id)
+        except IntegrityError as e:
+            raise ConflictError("User already linked to another profile") from e
+        if p is None:
+            raise ConflictError("Profile already linked or not found")
+        return p
+
+    async def get_health_by_profile_id(self, profile_id: UUID, user_id: UUID) -> HealthDetail | None:
+        await self._access.require_profile_read(profile_id, user_id)
+        return await self._repo.get_health(profile_id)
+
+    async def patch_health_by_profile_id(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        body: PatchHealthDetailRequest,
+    ) -> HealthDetail:
+        await self._access.require_profile_health_edit(profile_id, user_id)
         return await self._repo.upsert_health(
             profile_id,
             blood_type=body.blood_type,

@@ -36,15 +36,22 @@ async def send_notification_to_user(
 ) -> NotificationResponse:
     """Send push notification to all devices of a user."""
     use_case = SendNotificationToUserUseCase(auth_repo, fcm_service)
-    return await use_case.execute(payload)
+    return await use_case.execute(payload, current_user.id)
 
 
 @router.post("/send-device", response_model=NotificationResponse)
 async def send_notification_to_device(
     payload: SendNotificationToDeviceRequest,
     current_user: User = Depends(get_current_user),
+    auth_repo: AuthRepositoryPG = Depends(get_auth_repository),
     fcm_service: FCMService = Depends(get_fcm_service),
 ) -> NotificationResponse:
-    """Send push notification to a specific device by FCM token."""
-    use_case = SendNotificationToDeviceUseCase(fcm_service)
-    return await use_case.execute(payload)
+    """Send push notification to a specific device by FCM token (must be one of the caller's devices)."""
+    use_case = SendNotificationToDeviceUseCase(auth_repo, fcm_service)
+    try:
+        return await use_case.execute(payload, current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e

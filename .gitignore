@@ -12,6 +12,11 @@ coverage.xml
 .codex/
 .specify/
 specs/
+.cursor/
+.cursosr/
+.curosr/
+# Local medical uploads (003-medicine-inventory-api)
+uploads/medical/
 
 .curosr/
 *.local

@@ -1,0 +1,34 @@
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    image: medical-management-api:latest
+    container_name: medical-migrate
+    env_file:
+      - .env
+    working_dir: /app/app
+    command: >
+      sh -c "echo '[MIGRATE] Running Alembic...' &&
+             alembic --config alembic.ini upgrade head &&
+             echo '[MIGRATE] Done.'"
+    networks:
+      - medical-net
+
+  api:
+    image: medical-management-api:latest
+    container_name: medical_api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    networks:
+      - medical-net
+    depends_on:
+      migrate:
+        condition: service_completed_successfully # Ép API phải chờ Migrate chạy xong mới khởi động
+
+networks:
+  medical-net:
+    driver: bridge

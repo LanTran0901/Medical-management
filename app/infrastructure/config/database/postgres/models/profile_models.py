@@ -31,6 +31,15 @@ blood_type_pg = ENUM(
     create_type=False,
 )
 
+profile_status_pg = ENUM(
+    "SHADOW",
+    "PENDING_LINK",
+    "ACTIVE",
+    "INACTIVE",
+    name="profile_status",
+    create_type=False,
+)
+
 
 class ProfileModel(Base):
     __tablename__ = "profiles"
@@ -59,7 +68,11 @@ class ProfileModel(Base):
     weight_kg: Mapped[Decimal | None] = mapped_column(sa.Numeric(5, 1), nullable=True)
     address: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    status: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        profile_status_pg,
+        nullable=False,
+        server_default="ACTIVE",
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,

@@ -11,14 +11,19 @@ def unique_suffix() -> str:
     return uuid.uuid4().hex[:8]
 
 
-def register_user(client: TestClient, suffix: str | None = None) -> str:
+def unique_phone() -> str:
+    return f"+1{uuid.uuid4().int % (10**10):010d}"
+
+
+def register_user(client: TestClient, suffix: str | None = None, phone_number: str | None = None) -> str:
     """Đăng ký user; trả về suffix dùng cho email/login."""
     suf = suffix or unique_suffix()
     r = client.post(
         "/auth/register",
         json={
             "email": f"u{suf}@test.local",
-            "password_hash": "password123",
+            "phone_number": phone_number or unique_phone(),
+            "password": "password123",
         },
     )
     assert r.status_code == 201, r.text

@@ -5,12 +5,17 @@ from datetime import datetime, timezone
 import secrets
 
 from app.application.dtos.auth_dto import (
-    LoginRequest, GoogleLoginRequest, TokenResponse, 
-    ChangePasswordRequest, RefreshTokenRequest, 
-    ForgotPasswordRequest, ResetPasswordRequest, ForgotPasswordResponse,
-    LogoutRequest
+    LoginRequest,
+    GoogleLoginRequest,
+    TokenResponse,
+    ChangePasswordRequest,
+    RefreshTokenRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    ForgotPasswordResponse,
+    LogoutRequest,
+    RegisterRequest,
 )
-from app.application.dtos.user_dto import CreateUserRequest
 from app.application.ports.user_port import UserRepositoryPort
 from app.application.ports.auth_port import AuthRepositoryPort
 from app.domain.entities.user import User
@@ -19,22 +24,24 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.core.email import send_otp_email
 import random
 import jwt
-from fastapi import HTTPException
 
 class RegisterUseCase:
     def __init__(self, user_repository: UserRepositoryPort):
         self.user_repository = user_repository
 
-    async def execute(self, request: CreateUserRequest) -> User:
+    async def execute(self, request: RegisterRequest) -> User:
         existing_user = await self.user_repository.get_by_email(request.email)
         if existing_user is not None:
             raise ValueError("User with this email already exists.")
+        existing_phone = await self.user_repository.get_by_phone(request.phone_number)
+        if existing_phone is not None:
+            raise ValueError("User with this phone number already exists.")
 
         user = User.create(
-            email=request.email,
-            password_hash=get_password_hash(request.password_hash)
-            if request.password_hash
-            else None,
+            email=str(request.email),
+            password_hash=get_password_hash(request.password),
+            google_id=request.google_id,
+            phone_number=request.phone_number,
         )
         return await self.user_repository.create(user)
 

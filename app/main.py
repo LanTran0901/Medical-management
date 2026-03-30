@@ -9,6 +9,12 @@ from app.api.user_router import router as user_router
 from app.api.auth_router import router as auth_router
 from app.api.notification_router import router as notification_router
 from app.api.families_router import router as families_router
+from app.api.family_memberships_router import router as family_memberships_router
+from app.api.medicine_inventory_router import router as medicine_inventory_router
+from app.api.profile_router import router as profile_router
+from app.api.medical_router import router as medical_router
+from app.api.vaccination_router import router as vaccination_router
+from app.api.files_router import router as files_router
 from app.api.medical_dictionary_router import router as medical_dictionary_router
 from app.routes.rag import router as rag_router
 from app.core.config import settings
@@ -56,6 +62,12 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(families_router)
+app.include_router(family_memberships_router)
+app.include_router(medicine_inventory_router)
+app.include_router(profile_router)
+app.include_router(medical_router)
+app.include_router(vaccination_router)
+app.include_router(files_router)
 app.include_router(medical_dictionary_router)
 app.include_router(notification_router)
 app.include_router(rag_router)
@@ -64,4 +76,3 @@ app.include_router(rag_router)
 @app.get("/")
 async def read_root() -> dict[str, str]:
     return {"message": f"Welcome to {settings.app_name}"}
-

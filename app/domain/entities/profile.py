@@ -14,6 +14,15 @@ class ProfileKind(StrEnum):
     VIRTUAL = "VIRTUAL"
 
 
+class ProfileStatus(StrEnum):
+    """FR-004 — must match PostgreSQL enum `profile_status`."""
+
+    SHADOW = "SHADOW"
+    PENDING_LINK = "PENDING_LINK"
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
 @dataclass(frozen=True, slots=True)
 class Profile:
     id: UUID

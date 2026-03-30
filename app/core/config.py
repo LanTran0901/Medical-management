@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
@@ -26,6 +29,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30
+    bcrypt_rounds: int = Field(
+        default=14,
+        validation_alias=AliasChoices("BCRYPT_ROUNDS", "bcrypt_rounds"),
+    )
     google_client_id: str | None = None
     google_redirect_uri: str | None = None
     firebase_credentials_path: str | None = None
@@ -37,6 +44,18 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
     smtp_use_tls: bool = True
+
+    # Medical file uploads (FR-007) — env MEDICAL_UPLOAD_DIR maps here (see tasks T001)
+    medical_upload_dir: str = Field(
+        default="uploads/medical",
+        validation_alias=AliasChoices("MEDICAL_UPLOAD_DIR", "medical_upload_dir"),
+        description="Directory on disk for medical record attachment bytes (MVP local disk).",
+    )
+    medical_upload_max_mb: int | None = Field(
+        default=10,
+        validation_alias=AliasChoices("MEDICAL_UPLOAD_MAX_MB", "medical_upload_max_mb"),
+        description="Max upload size per file in MB; None disables limit in settings (enforce in handler).",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -123,6 +142,10 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             f"?sslmode={self.POSTGRES_SSLMODE}"
         )
+
+    def resolved_medical_upload_path(self) -> Path:
+        """Absolute path for medical uploads (creates parent dirs is caller's responsibility)."""
+        return Path(self.medical_upload_dir).expanduser().resolve()
 
 
 settings = Settings()

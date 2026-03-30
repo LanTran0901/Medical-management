@@ -20,6 +20,10 @@ class UserRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def get_by_phone(self, phone_number: str) -> User | None:
+        raise NotImplementedError
+
+    @abstractmethod
     async def list_users(self) -> list[User]:
         raise NotImplementedError
 

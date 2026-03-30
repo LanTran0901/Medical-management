@@ -4,12 +4,18 @@ from fastapi.security import OAuth2PasswordRequestForm
 import uuid
 
 from app.application.dtos.auth_dto import (
-    LoginRequest, GoogleLoginRequest, TokenResponse, 
-    ChangePasswordRequest, RefreshTokenRequest,
-    ForgotPasswordRequest, ResetPasswordRequest, ForgotPasswordResponse,
-    LogoutRequest
+    LoginRequest,
+    GoogleLoginRequest,
+    TokenResponse,
+    ChangePasswordRequest,
+    RefreshTokenRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    ForgotPasswordResponse,
+    LogoutRequest,
+    RegisterRequest,
 )
-from app.application.dtos.user_dto import CreateUserRequest, UserResponse
+from app.application.dtos.user_dto import UserResponse
 from app.application.usecases.auth_usecases import (
     RegisterUseCase, LoginUseCase, GoogleLoginUseCase, 
     ChangePasswordUseCase, RefreshTokenUseCase,
@@ -31,7 +37,7 @@ def get_auth_repository(session: AsyncSession = Depends(get_session)) -> AuthRep
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
-    payload: CreateUserRequest,
+    payload: RegisterRequest,
     user_repo: UserRepositoryPG = Depends(get_user_repository),
 ) -> UserResponse:
     try:

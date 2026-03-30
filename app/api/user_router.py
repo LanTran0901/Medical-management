@@ -7,11 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.dtos.user_dto import (
+    PatchUserMeRequest,
+    UpdateUserRequest,
+    UserResponse,
+)
 from app.application.dtos.family_dto import CreatePersonalProfileRequest, ProfileResponse
 from app.application.family_errors import ConflictError
 from app.application.dtos.user_dto import CreateUserRequest, UpdateUserRequest, UserResponse
 from app.application.usecases.user_usecases import (
-    CreateUserUseCase,
     DeleteUserUseCase,
     GetUserUseCase,
     ListUsersUseCase,
@@ -30,25 +34,7 @@ def get_user_repository(session: AsyncSession = Depends(get_session)) -> UserRep
     return UserRepositoryPG(session)
 
 
-@router.post(
-    "",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create user",
-    description="Create a user record",
-)
-async def create_user(
-    payload: CreateUserRequest,
-    repository: UserRepositoryPG = Depends(get_user_repository),
-) -> UserResponse:
-    try:
-        user = await CreateUserUseCase(repository).execute(payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return UserResponse.from_entity(user)
-
-
-@router.get("", response_model=list[UserResponse], summary="List users", description="List all users")
+@router.get("", response_model=list[UserResponse])
 async def list_users(
     repository: UserRepositoryPG = Depends(get_user_repository),
 ) -> list[UserResponse]:
@@ -114,12 +100,24 @@ async def get_current_user_profile(
     return UserResponse.from_entity(user)
 
 
-@router.get(
-    "/{user_id}",
-    response_model=UserResponse,
-    summary="Get user by id",
-    description="Return a user by id if requester is the same user",
-)
+@router.patch("/me", response_model=UserResponse, summary="Update current user (e.g. phone_number)")
+async def patch_current_user_me(
+    body: PatchUserMeRequest,
+    current_user: User = Depends(get_current_user),
+    repository: UserRepositoryPG = Depends(get_user_repository),
+) -> UserResponse:
+    try:
+        user = await GetUserUseCase(repository).execute(current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    patch = body.model_dump(exclude_unset=True)
+    if "phone_number" in patch:
+        user.phone_number = patch["phone_number"]
+    updated = await repository.update(user)
+    return UserResponse.from_entity(updated)
+
+
+@router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: UUID,
     repository: UserRepositoryPG = Depends(get_user_repository),

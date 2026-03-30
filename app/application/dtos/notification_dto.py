@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from typing import Optional
-from uuid import UUID
 
 from pydantic import BaseModel
 
 
 class SendNotificationRequest(BaseModel):
-    """Send notification to all devices of a user."""
-    user_id: UUID
+    """Send notification to all devices of the authenticated user (no user_id in body)."""
+
     title: str
     body: str
     data: Optional[dict[str, str]] = None
