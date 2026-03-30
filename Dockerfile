@@ -22,6 +22,6 @@ RUN if [ "$INSTALL_TEST_DEPS" = "1" ]; then \
 
 COPY . .
 
-EXPOSE 8080
+EXPOSE 7543
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7543"]

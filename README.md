@@ -102,9 +102,9 @@ docker compose down
 
 ## Kiem tra
 
-- API root: `http://127.0.0.1:8080/`
-- Health check: `http://127.0.0.1:8080/health` → `{"status":"ok","mongodb":"connected","postgres":"connected"}`
-- Swagger UI: `http://127.0.0.1:8080/docs`
+- API root: `http://127.0.0.1:7543/`
+- Health check: `http://127.0.0.1:7543/health` → `{"status":"ok","mongodb":"connected","postgres":"connected"}`
+- Swagger UI: `http://127.0.0.1:7543/docs`
 
 ## Pytest bang Docker (PostgreSQL — khong can MongoDB)
 
