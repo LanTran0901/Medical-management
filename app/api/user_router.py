@@ -14,7 +14,6 @@ from app.application.dtos.user_dto import (
 )
 from app.application.dtos.family_dto import CreatePersonalProfileRequest, ProfileResponse
 from app.application.family_errors import ConflictError
-from app.application.dtos.user_dto import CreateUserRequest, UpdateUserRequest, UserResponse
 from app.application.usecases.user_usecases import (
     DeleteUserUseCase,
     GetUserUseCase,
