@@ -80,6 +80,35 @@ def _enforce_invite_preview_rate_limit(client_ip: str) -> None:
     _invite_preview_hits[client_ip] = hits
 
 
+async def _build_family_contract(
+    svc: FamiliesService,
+    family_id: UUID,
+    user_id: UUID,
+    include_invites: bool,
+) -> FamilyContractResponse:
+    family = await svc.get_family(family_id, user_id)
+    member_rows = await svc.list_member_details(family_id, user_id)
+    members = [
+        FamilyMemberResponse.from_entities(
+            membership=membership,
+            profile=profile,
+            health=health,
+            current_user_id=user_id,
+        )
+        for membership, profile, health in member_rows
+    ]
+    invites = (
+        [FamilyInviteResponse.from_entity(invite) for invite in await svc.get_family_invites(family_id, user_id)]
+        if include_invites
+        else []
+    )
+    return FamilyContractResponse.from_parts(
+        family=family,
+        members=members,
+        invites=invites,
+    )
+
+
 @router.post(
     "",
     response_model=FamilyContractResponse,
@@ -125,8 +154,13 @@ async def preview_invite(
     client_ip = request.client.host if request.client else "unknown"
     _enforce_invite_preview_rate_limit(client_ip)
     try:
-        fam = await svc.preview_invite(invite_code)
-        return InvitePreviewResponse(family_name=fam.family_name, invite_code=fam.invite_code)
+        prev = await svc.preview_invite(invite_code)
+        return InvitePreviewResponse(
+            family_name=prev.family_name,
+            invite_code=prev.invite_code,
+            valid=prev.valid,
+            expires_at=prev.expires_at,
+        )
     except Exception as e:
         _handle_family_error(e)
         raise

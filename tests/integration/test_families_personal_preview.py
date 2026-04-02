@@ -38,8 +38,8 @@ def test_sc004_personal_profile_then_join_reuses_linked_profile(client) -> None:
         headers=auth_headers(owner_token),
     )
     assert family_resp.status_code == 201, family_resp.text
-    invite_code = family_resp.json()["family"]["invite_code"]
-    family_id = family_resp.json()["family"]["id"]
+    invite_code = family_resp.json()["invite_code"]
+    family_id = family_resp.json()["id"]
 
     join_resp = client.post(
         "/families/join",
@@ -79,15 +79,15 @@ def test_invite_preview_valid_and_invalid(client) -> None:
         headers=auth_headers(owner_token),
     )
     assert created.status_code == 201, created.text
-    family = created.json()["family"]
-    invite_code = family["invite_code"]
+    payload = created.json()
+    invite_code = payload["invite_code"]
 
     ok = client.get(f"/families/invite/preview?invite_code={invite_code}")
     assert ok.status_code == 200, ok.text
     payload = ok.json()
     assert payload["valid"] is True
     assert payload["invite_code"] == invite_code
-    assert payload["family_name"] == family["family_name"]
+    assert payload["family_name"] == created.json()["name"]
 
     bad = client.get("/families/invite/preview?invite_code=invalid_preview_code")
     assert bad.status_code == 404

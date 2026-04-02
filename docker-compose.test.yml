@@ -36,6 +36,9 @@ services:
     environment:
       HOMEDMEDAI_INTEGRATION: "1"
       SKIP_MONGO_LIFESPAN: "1"
+      # Override host-mounted .env DATABASE_URL so app + alembic hit the same Postgres service
+      # No ssl= query param: psycopg2 (alembic) rejects ?ssl=; asyncpg ok without it on internal network
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/medical
     depends_on:
       postgres:
         condition: service_healthy

@@ -6,6 +6,7 @@ from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
     FamilyMembershipModel,
     FamilyModel,
+    FamilyPublicInviteModel,
 )
 from app.infrastructure.config.database.postgres.models.profile_models import HealthDetailModel, ProfileModel
 from app.infrastructure.config.database.postgres.models.medicine_inventory_model import MedicineInventoryModel
@@ -33,6 +34,7 @@ __all__ = [
     "FamilyModel",
     "FamilyMembershipModel",
     "FamilyInviteModel",
+    "FamilyPublicInviteModel",
     "ProfileModel",
     "HealthDetailModel",
     "MedicineInventoryModel",

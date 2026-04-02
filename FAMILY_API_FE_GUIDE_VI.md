@@ -91,6 +91,16 @@ export interface Family {
   members: FamilyMember[];
   invites?: FamilyInvite[] | null;
 }
+
+/** Preview mã mời công khai (QR / deep-link). Không cần Bearer. */
+export interface FamilyInvitePreview {
+  family_name: string;
+  invite_code: string;
+  /** false nếu mã hết hạn, đã dùng, hoặc đã bị thay (rotate) */
+  valid: boolean;
+  /** ISO-8601; hết hạn theo cấu hình server (mặc định ~24h mỗi lần tạo/rotate) */
+  expires_at: string;
+}
 ```
 
 Ghi chú:
@@ -98,6 +108,7 @@ Ghi chú:
   - `displayRole = relation_role ?? role`
 - `GET /families` có thể trả `invites = null`.
 - `GET /families/{family_id}` là response detail đầy đủ hơn.
+- **Mã mời công khai** (`invite_code` trên family): backend lưu dưới dạng token **dùng một lần** và có **thời gian hết hạn**. Sau khi một user join thành công bằng mã đó, mã đó **không** dùng lại được; OWNER cần **rotate** để tạo mã mới nếu muốn mời tiếp bằng link/QR.
 
 ## 3. Mapping từ yêu cầu UI sang backend hiện tại
 
@@ -111,6 +122,9 @@ Ghi chú:
 | Mời thành viên | `POST /families/{family_id}/invite-by-phone` với `dry_run=false` | Tạo pending invite |
 | Chấp nhận lời mời | `POST /families/join` với `action=accept` | Không có `/family-invites/{id}/accept` |
 | Từ chối lời mời | `POST /families/join` với `action=reject` | Không có `/family-invites/{id}/reject` |
+| Preview mã QR / deep-link (trước login) | `GET /families/invite/preview?invite_code=...` | **Không** cần `Authorization` |
+| Join bằng mã mời công khai | `POST /families/join` với `invite_code` | Cần Bearer; mã **single-use**, có `expires_at` |
+| Đổi mã mời công khai (OWNER) | `POST /families/{family_id}/invite/rotate` | Invalidates mã đang hiển thị, cấp mã + TTL mới |
 | Tạo proxy profile | `POST /families/{family_id}/profiles` | Không có `/members/proxy-profile` |
 | Danh sách members | `GET /families/{family_id}/members` | Dùng cho list member |
 | Chi tiết member | Chưa có route riêng | Dùng `GET /families/{family_id}` hoặc `GET /families/{family_id}/members` |
@@ -487,14 +501,46 @@ Response:
 }
 ```
 
-### 4.10. Join bằng invite code
+### 4.10. Join bằng mã mời công khai (invite code / QR / deep-link)
 
-Flow cũ vẫn được giữ để backward compatibility.
+Backend quản lý **mã mời công khai** như một token riêng (không chỉ là field tĩnh trên family):
 
-Endpoint:
+| Hành vi | Ý nghĩa cho FE |
+|--------|----------------|
+| **Single-use** | Một mã chỉ cho **một lần** join thành công. Sau đó mã **hết hiệu lực** — user khác gửi cùng mã sẽ nhận `404`. |
+| **Có hạn** | Mỗi mã có `expires_at`. Hết hạn → preview có `valid: false` và join trả `404`. Thời lượng mặc định do server (thường ~24h; có thể cấu hình env backend). |
+| **Đồng bộ với OWNER** | Field `invite_code` trên `GET /families`, `GET /families/{id}`, response `POST /families` luôn là mã **đang active** (còn hạn + chưa consume). Sau khi ai đó join xong, mã đó **không còn dùng được**; để share tiếp, OWNER gọi **rotate** (mục 4.11). |
+
+#### 4.10.1. Preview — hiển thị trước khi login (màn landing / QR)
+
+- **Không** gửi `Authorization`.
+- Có **rate limit** theo IP (tránh quét mã).
+
+```http
+GET /families/invite/preview?invite_code=ABC123
+```
+
+Response `200`:
+
+```json
+{
+  "family_name": "Phan Family",
+  "invite_code": "ABC123",
+  "valid": true,
+  "expires_at": "2026-03-30T12:00:00Z"
+}
+```
+
+- `valid: false` khi mã không còn dùng được (hết hạn, đã join, hoặc đã bị OWNER rotate). FE vẫn có thể hiển thị `family_name` + `expires_at` để báo “Mã không còn hiệu lực”.
+- `404` khi **không** tồn tại mã đó (sai/không có trong hệ thống).
+
+Gợi ý UX: nếu `valid === false`, CTA là “Yêu cầu mã mới từ chủ gia đình” thay vì điều hướng login join.
+
+#### 4.10.2. Join — bắt buộc đã đăng nhập
 
 ```http
 POST /families/join
+Authorization: Bearer <access_token>
 ```
 
 Body:
@@ -506,7 +552,9 @@ Body:
 }
 ```
 
-Response:
+- `full_name` vẫn cần khi user **chưa** có personal profile (giữ nguyên rule cũ).
+
+Response `200`:
 
 ```json
 {
@@ -518,6 +566,27 @@ Response:
   "message": "Joined family"
 }
 ```
+
+- User **đã là member** gửi lại cùng mã (đã consume) → `409` (conflict).
+- Mã sai / hết hạn / đã dùng → `404`.
+
+#### 4.10.3. Flow gợi ý (QR)
+
+1. Quét QR → mở app với `invite_code` trong query → gọi `GET /families/invite/preview`.
+2. Nếu `valid` → hiển thị tên gia đình + thời hạn; nút “Tham gia” → login/register → `POST /families/join`.
+
+### 4.11. Đổi mã mời công khai (OWNER — sau khi mã cũ hết dùng hoặc lộ mã)
+
+Chỉ **OWNER** gọi được.
+
+```http
+POST /families/{family_id}/invite/rotate
+Authorization: Bearer <access_token>
+```
+
+Response trả **full family contract** (giống `GET /families/{family_id}`): trong đó `invite_code` là **mã mới**, kèm TTL mới.
+
+- Mã cũ lập tức **không** còn join được (`404` khi join/preview `valid: false` tùy trạng thái lưu).
 
 ## 5. Member detail screen nên gọi API nào
 
@@ -557,7 +626,7 @@ GET /profiles/{profile_id}/health
 
 - `400`: body không hợp lệ, sai format phone, thiếu field cần thiết
 - `403`: không đủ quyền
-- `404`: family/invite/profile không tồn tại
+- `404`: family/invite/profile không tồn tại; **join bằng `invite_code`**: mã sai, hết hạn, đã dùng (single-use), hoặc đã rotate
 - `409`: đã là member, đã có pending invite, conflict nghiệp vụ
 
 ## 7. Luồng gọi API FE nên implement
@@ -586,6 +655,13 @@ GET /profiles/{profile_id}/health
 1. `POST /families/{family_id}/profiles`
 2. Nếu cần reload danh sách members, gọi `GET /families/{family_id}` hoặc `GET /families/{family_id}/members`
 
+### E. Join bằng mã mời công khai (QR / link)
+
+1. (Không login) `GET /families/invite/preview?invite_code=...` — hiển thị tên gia đình + `valid` + `expires_at`.
+2. User đăng nhập xong → `POST /families/join` với `invite_code` (+ `full_name` nếu chưa có personal profile).
+3. Nếu join thành công: refresh `GET /families`; **mã hiện tại không dùng lại** cho người khác.
+4. OWNER muốn mời thêm người bằng link mới: `POST /families/{family_id}/invite/rotate`, lấy `invite_code` mới từ response để share/QR.
+
 ## 8. Tóm tắt ngắn cho FE
 
 - Không cần đợi backend mở thêm bộ endpoint mới như `/family-invites`, `/users/search-by-phone`, `/families/my`, `/members/proxy-profile`.
@@ -595,7 +671,9 @@ GET /profiles/{profile_id}/health
   - `GET /families/{family_id}`
   - `GET /families/invites`
   - `POST /families/{family_id}/invite-by-phone`
-  - `POST /families/join`
+  - `GET /families/invite/preview` (public — preview mã công khai)
+  - `POST /families/join` (invite code **single-use** + có hạn; inbox vẫn dùng `action` + `invite_id`)
+  - `POST /families/{family_id}/invite/rotate` (OWNER — tạo mã mới)
   - `POST /families/{family_id}/profiles`
   - `GET /families/{family_id}/members`
   - `GET /profiles/{profile_id}`

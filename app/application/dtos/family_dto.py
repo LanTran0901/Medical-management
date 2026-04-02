@@ -121,6 +121,7 @@ class InvitePreviewResponse(BaseModel):
     family_name: str
     invite_code: str
     valid: bool = True
+    expires_at: datetime
 
 
 class PatchFamilyRequest(BaseModel):

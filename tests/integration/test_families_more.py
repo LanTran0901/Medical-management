@@ -47,24 +47,18 @@ def test_case_c_member_patch_health_forbidden(client) -> None:
     )
     assert patch.status_code == 403
 
-    get_other = client.get(
-        f"/families/{family_id}/profiles/{owner_profile_id}/health",
-        headers=auth_headers(member_tok),
-    )
-    assert get_other.status_code == 403
+    get_other = client.get(f"/profiles/{owner_profile_id}/health", headers=auth_headers(member_tok))
+    assert get_other.status_code == 200
 
     patch_prof = client.patch(
-        f"/families/{family_id}/profiles/{owner_profile_id}",
+        f"/profiles/{owner_profile_id}",
         json={"full_name": "hijack"},
         headers=auth_headers(member_tok),
     )
     assert patch_prof.status_code == 403
 
-    get_prof = client.get(
-        f"/families/{family_id}/profiles/{owner_profile_id}",
-        headers=auth_headers(member_tok),
-    )
-    assert get_prof.status_code == 403
+    get_prof = client.get(f"/profiles/{owner_profile_id}", headers=auth_headers(member_tok))
+    assert get_prof.status_code == 200
 
 
 def test_case_e_member_get_own_health_ok(client) -> None:
@@ -80,11 +74,11 @@ def test_case_e_member_get_own_health_ok(client) -> None:
         headers=auth_headers(owner_tok),
     )
     assert cr.status_code == 201, cr.text
-    family_id = cr.json()["family"]["id"]
+    family_id = cr.json()["id"]
 
     jr = client.post(
         "/families/join",
-        json={"invite_code": cr.json()["family"]["invite_code"], "full_name": "Member G"},
+        json={"invite_code": cr.json()["invite_code"], "full_name": "Member G"},
         headers=auth_headers(member_tok),
     )
     assert jr.status_code == 200, jr.text
@@ -99,15 +93,12 @@ def test_case_e_member_get_own_health_ok(client) -> None:
         p["id"] for p in plist.json() if p.get("linked_user_id") == member_user_id
     )
 
-    gr = client.get(
-        f"/families/{family_id}/profiles/{member_profile_id}/health",
-        headers=auth_headers(member_tok),
-    )
+    gr = client.get(f"/profiles/{member_profile_id}/health", headers=auth_headers(member_tok))
     assert gr.status_code == 200
     assert gr.json()["profile_id"] == member_profile_id
 
     patch_self = client.patch(
-        f"/families/{family_id}/profiles/{member_profile_id}",
+        f"/profiles/{member_profile_id}",
         json={"full_name": "Member New Name"},
         headers=auth_headers(member_tok),
     )

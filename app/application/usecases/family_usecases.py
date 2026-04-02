@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
+
+from app.core.config import settings as app_settings
 
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
@@ -27,10 +30,15 @@ from app.domain.entities.family import (
     FamilyInviteStatus,
     FamilyMembership,
     FamilyRole,
+    PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
 from app.domain.services.family_permission import has_at_least
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
 
 
 class FamiliesService:
@@ -65,12 +73,14 @@ class FamiliesService:
         user_id: UUID,
         body: CreateFamilyRequest,
     ) -> tuple[Family, Profile, FamilyMembership]:
+        exp = _utc_now() + timedelta(seconds=app_settings.family_public_invite_ttl_seconds)
         return await self._repo.create_family_with_owner_profile(
             family_name=body.name,
             address=body.address,
             avatar_url=body.avatar_url,
             creator_user_id=user_id,
             creator_full_name=body.owner_profile_full_name,
+            public_invite_expires_at=exp,
         )
 
     async def list_my_families(self, user_id: UUID) -> list[Family]:
@@ -105,12 +115,20 @@ class FamiliesService:
 
     async def join_family(self, user_id: UUID, body: JoinFamilyRequest) -> dict:
         if body.invite_code:
-            fam = await self._repo.find_family_by_invite_code(body.invite_code)
-            if fam is None:
+            code = body.invite_code.strip()
+            snap = await self._repo.preview_public_invite(code)
+            if snap is None:
                 raise NotFoundError("Invalid or expired invite code")
             prof = await self._ensure_personal_profile(user_id, body.full_name)
-            if await self._repo.has_membership(fam.id, prof.id):
+            if await self._repo.has_membership(snap.family_id, prof.id):
                 raise ConflictError("Already a member of this family")
+            fam = await self._repo.consume_pending_public_invite(code, user_id)
+            if fam is None:
+                if await self._repo.has_membership(snap.family_id, prof.id):
+                    raise ConflictError("Already a member of this family")
+                raise NotFoundError("Invalid or expired invite code")
+            if fam.id != snap.family_id:
+                raise NotFoundError("Invalid or expired invite code")
             try:
                 membership = await self._repo.create_membership(
                     family_id=fam.id,
@@ -257,7 +275,12 @@ class FamiliesService:
         m = await self._access.require_family_member(family_id, user_id)
         if m.role != FamilyRole.OWNER:
             raise ForbiddenError("Only OWNER can rotate invite code")
-        fam = await self._repo.rotate_invite(family_id)
+        exp = _utc_now() + timedelta(seconds=app_settings.family_public_invite_ttl_seconds)
+        fam = await self._repo.rotate_invite(
+            family_id,
+            public_invite_expires_at=exp,
+            rotated_by=user_id,
+        )
         if fam is None:
             raise NotFoundError("Family not found")
         return fam
@@ -412,11 +435,11 @@ class FamiliesService:
         except IntegrityError as e:
             raise ConflictError("Personal profile already exists") from e
 
-    async def preview_invite(self, invite_code: str) -> Family:
-        fam = await self._repo.find_family_by_invite_code(invite_code)
-        if fam is None:
+    async def preview_invite(self, invite_code: str) -> PublicInvitePreview:
+        prev = await self._repo.preview_public_invite(invite_code)
+        if prev is None:
             raise NotFoundError("Invalid or expired invite code")
-        return fam
+        return prev
 
     async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
         m = await self._membership_or_404(family_id, user_id)
