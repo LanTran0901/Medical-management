@@ -27,6 +27,7 @@ from app.core.config import settings as app_settings
 from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medical_dictionary_usecases import MedicalDictionaryService
+from app.application.usecases.rag_usecases import MedicalRagService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login/swagger")
 
@@ -142,3 +143,9 @@ def get_medical_dictionary_service(
     session: AsyncSession = Depends(get_session),
 ) -> MedicalDictionaryService:
     return MedicalDictionaryService(MedicalDictionaryRepository(session))
+
+
+def get_rag_service(
+    session: AsyncSession = Depends(get_session),
+) -> MedicalRagService:
+    return MedicalRagService(MedicalDictionaryRepository(session))

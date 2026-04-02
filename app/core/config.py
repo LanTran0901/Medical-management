@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.1-8b-instant"
     rag_knowledge_collection: str = "rag_knowledge"
     rag_chat_history_collection: str = "rag_chat_history"
+    rag_embedding_model: str = "intfloat/multilingual-e5-small"
+    rag_embedding_dimensions: int = 384
+    rag_top_k: int = 6
+    rag_per_type_limit: int = 3
 
     jwt_secret: str = "super_secret_key_change_me_in_production"
     jwt_algorithm: str = "HS256"

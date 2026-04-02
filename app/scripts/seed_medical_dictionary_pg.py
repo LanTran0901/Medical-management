@@ -15,6 +15,8 @@ from app.infrastructure.config.database.postgres.models.medical_dictionary_model
     DrugModel,
     VaccineModel,
 )
+from app.domain.entities.medical_dictionary import DictionaryEntryType
+from app.services.rag_support import build_search_document, embed_documents
 
 
 FILE_MAP: dict[str, tuple[type, str]] = {
@@ -102,7 +104,12 @@ def _summary(payload: dict[str, str]) -> str | None:
     return None
 
 
-def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]:
+def _load_rows(
+    data_dir: Path,
+    kind: str,
+    per_type: int,
+    include_embeddings: bool,
+) -> list[dict[str, Any]]:
     _, filename = FILE_MAP[kind]
     file_path = data_dir / filename
     if not file_path.exists():
@@ -112,6 +119,7 @@ def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]
         raw = json.load(f)
 
     rows: list[dict[str, Any]] = []
+    search_documents: list[str] = []
     for idx, line in enumerate(raw, start=1):
         if len(rows) >= per_type:
             break
@@ -120,6 +128,18 @@ def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]
             continue
         fallback = f"{kind}-{idx}"
         title = _best_title(kind, payload, fallback)
+        entry_type = {
+            "disease": DictionaryEntryType.DISEASE,
+            "drug": DictionaryEntryType.DRUG,
+            "vaccine": DictionaryEntryType.VACCINE,
+        }[kind]
+        search_document = build_search_document(
+            entry_type=entry_type,
+            title=title,
+            aliases=_aliases(payload, title),
+            summary=_summary(payload),
+            content=payload,
+        )
         rows.append(
             {
                 "source_index": idx,
@@ -127,13 +147,25 @@ def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]
                 "aliases": _aliases(payload, title),
                 "summary": _summary(payload),
                 "content": payload,
+                "search_document": search_document,
+                "embedding": None,
                 "source_file": filename,
             }
         )
+        search_documents.append(search_document)
+
+    if include_embeddings and search_documents:
+        embeddings = embed_documents(search_documents)
+        for row, embedding in zip(rows, embeddings, strict=True):
+            row["embedding"] = embedding
     return rows
 
 
-def seed_medical_dictionary(per_type: int, drop_legacy: bool) -> dict[str, int]:
+def seed_medical_dictionary(
+    per_type: int,
+    drop_legacy: bool,
+    include_embeddings: bool,
+) -> dict[str, int]:
     engine = sa.create_engine(settings.POSTGRES_SYNC_URL, future=True)
     counters = {"disease": 0, "drug": 0, "vaccine": 0}
     data_dir = Path(settings.data_dir)
@@ -151,7 +183,12 @@ def seed_medical_dictionary(per_type: int, drop_legacy: bool) -> dict[str, int]:
                 conn.execute(sa.text("DROP TABLE IF EXISTS vaccine_dictionary_entries CASCADE"))
 
             for kind, (model, _) in FILE_MAP.items():
-                rows = _load_rows(data_dir=data_dir, kind=kind, per_type=per_type)
+                rows = _load_rows(
+                    data_dir=data_dir,
+                    kind=kind,
+                    per_type=per_type,
+                    include_embeddings=include_embeddings,
+                )
                 if not rows:
                     continue
                 stmt = insert(model).values(rows)
@@ -162,6 +199,8 @@ def seed_medical_dictionary(per_type: int, drop_legacy: bool) -> dict[str, int]:
                         "aliases": stmt.excluded.aliases,
                         "summary": stmt.excluded.summary,
                         "content": stmt.excluded.content,
+                        "search_document": stmt.excluded.search_document,
+                        "embedding": stmt.excluded.embedding,
                         "source_file": stmt.excluded.source_file,
                         "updated_at": sa.text("now()"),
                     },
@@ -186,9 +225,18 @@ def main() -> None:
         action="store_true",
         help="Drop legacy medical_dictionary_entries table",
     )
+    parser.add_argument(
+        "--skip-embeddings",
+        action="store_true",
+        help="Seed data without generating pgvector embeddings",
+    )
     args = parser.parse_args()
 
-    counters = seed_medical_dictionary(per_type=max(1, args.per_type), drop_legacy=args.drop_legacy)
+    counters = seed_medical_dictionary(
+        per_type=max(1, args.per_type),
+        drop_legacy=args.drop_legacy,
+        include_embeddings=not args.skip_embeddings,
+    )
     print(
         "Seeded rows -> "
         f"disease={counters['disease']}, drug={counters['drug']}, vaccine={counters['vaccine']}"

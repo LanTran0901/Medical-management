@@ -2,6 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api.health_router import router as health_router
@@ -58,6 +59,13 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=False,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(user_router)
@@ -76,3 +84,4 @@ app.include_router(rag_router)
 @app.get("/")
 async def read_root() -> dict[str, str]:
     return {"message": f"Welcome to {settings.app_name}"}
+

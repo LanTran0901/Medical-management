@@ -6,7 +6,9 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from pgvector.sqlalchemy import VECTOR
 
+from app.core.config import settings
 from app.infrastructure.config.database.base import Base
 
 
@@ -22,6 +24,11 @@ class _MedicalDictionaryBase:
     aliases: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=sa.text("'[]'::jsonb"))
     summary: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
     content: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    search_document: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(
+        VECTOR(settings.rag_embedding_dimensions),
+        nullable=True,
+    )
     source_file: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
