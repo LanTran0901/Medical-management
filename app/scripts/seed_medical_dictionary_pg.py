@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert
 
 from app.core.config import settings
 from app.infrastructure.config.database.postgres.models.medical_dictionary_models import (
@@ -107,7 +106,7 @@ def _summary(payload: dict[str, str]) -> str | None:
 def _load_rows(
     data_dir: Path,
     kind: str,
-    per_type: int,
+    per_type: int | None,
     include_embeddings: bool,
 ) -> list[dict[str, Any]]:
     _, filename = FILE_MAP[kind]
@@ -121,7 +120,7 @@ def _load_rows(
     rows: list[dict[str, Any]] = []
     search_documents: list[str] = []
     for idx, line in enumerate(raw, start=1):
-        if len(rows) >= per_type:
+        if per_type is not None and len(rows) >= per_type:
             break
         payload = _parse_record(str(line))
         if not payload:
@@ -142,7 +141,6 @@ def _load_rows(
         )
         rows.append(
             {
-                "source_index": idx,
                 "title": title,
                 "aliases": _aliases(payload, title),
                 "summary": _summary(payload),
@@ -162,9 +160,10 @@ def _load_rows(
 
 
 def seed_medical_dictionary(
-    per_type: int,
+    per_type: int | None,
     drop_legacy: bool,
     include_embeddings: bool,
+    truncate_first: bool,
 ) -> dict[str, int]:
     engine = sa.create_engine(settings.POSTGRES_SYNC_URL, future=True)
     counters = {"disease": 0, "drug": 0, "vaccine": 0}
@@ -181,6 +180,8 @@ def seed_medical_dictionary(
                 conn.execute(sa.text("DROP TABLE IF EXISTS disease_dictionary_entries CASCADE"))
                 conn.execute(sa.text("DROP TABLE IF EXISTS drug_dictionary_entries CASCADE"))
                 conn.execute(sa.text("DROP TABLE IF EXISTS vaccine_dictionary_entries CASCADE"))
+            if truncate_first:
+                conn.execute(sa.text("TRUNCATE TABLE diseases, drugs, vaccines RESTART IDENTITY CASCADE"))
 
             for kind, (model, _) in FILE_MAP.items():
                 rows = _load_rows(
@@ -191,21 +192,7 @@ def seed_medical_dictionary(
                 )
                 if not rows:
                     continue
-                stmt = insert(model).values(rows)
-                upsert_stmt = stmt.on_conflict_do_update(
-                    index_elements=[model.source_index],
-                    set_={
-                        "title": stmt.excluded.title,
-                        "aliases": stmt.excluded.aliases,
-                        "summary": stmt.excluded.summary,
-                        "content": stmt.excluded.content,
-                        "search_document": stmt.excluded.search_document,
-                        "embedding": stmt.excluded.embedding,
-                        "source_file": stmt.excluded.source_file,
-                        "updated_at": sa.text("now()"),
-                    },
-                )
-                conn.execute(upsert_stmt)
+                conn.execute(sa.insert(model), rows)
                 counters[kind] = len(rows)
         return counters
     finally:
@@ -221,9 +208,19 @@ def main() -> None:
         help="Number of entries for each table (disease/drug/vaccine)",
     )
     parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Seed all rows from each JSON file",
+    )
+    parser.add_argument(
         "--drop-legacy",
         action="store_true",
         help="Drop legacy medical_dictionary_entries table",
+    )
+    parser.add_argument(
+        "--truncate-first",
+        action="store_true",
+        help="Delete existing rows in diseases, drugs, vaccines before seeding",
     )
     parser.add_argument(
         "--skip-embeddings",
@@ -233,9 +230,10 @@ def main() -> None:
     args = parser.parse_args()
 
     counters = seed_medical_dictionary(
-        per_type=max(1, args.per_type),
+        per_type=None if args.all else max(1, args.per_type),
         drop_legacy=args.drop_legacy,
         include_embeddings=not args.skip_embeddings,
+        truncate_first=args.truncate_first,
     )
     print(
         "Seeded rows -> "

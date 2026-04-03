@@ -19,7 +19,6 @@ class _MedicalDictionaryBase:
         server_default=sa.text("gen_random_uuid()"),
         nullable=False,
     )
-    source_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False, unique=True, index=True)
     title: Mapped[str] = mapped_column(sa.String(512), nullable=False, index=True)
     aliases: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=sa.text("'[]'::jsonb"))
     summary: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)

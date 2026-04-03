@@ -33,7 +33,7 @@ def reindex_vectors(*, batch_size: int) -> dict[str, int]:
     try:
         with Session(engine) as session:
             for entry_type, model in MODEL_MAP.items():
-                rows = session.execute(sa.select(model).order_by(model.source_index.asc())).scalars().all()
+                rows = session.execute(sa.select(model).order_by(model.title.asc(), model.id.asc())).scalars().all()
                 for start in range(0, len(rows), batch_size):
                     batch = rows[start:start + batch_size]
                     documents = [
