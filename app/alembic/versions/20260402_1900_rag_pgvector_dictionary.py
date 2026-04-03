@@ -1,7 +1,7 @@
 """Add pgvector columns for medical dictionary RAG
 
 Revision ID: 20260402_1900
-Revises: 20260330_0100
+Revises: 20260330_0300
 Create Date: 2026-04-02 19:00:00
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260402_1900"
-down_revision: Union[str, None] = "20260330_0100"
+down_revision: Union[str, None] = "20260330_0300"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 EMBEDDING_DIMENSIONS = 384
