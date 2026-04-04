@@ -23,7 +23,7 @@ from app.domain.entities.family import (
     PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
-from app.domain.entities.profile import Profile
+from app.domain.entities.profile import Profile, ProfileStatus
 from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
     FamilyMembershipModel,
@@ -638,6 +638,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
             weight_kg=weight_kg,
             address=address,
             avatar_url=avatar_url,
+            status=(
+                ProfileStatus.ACTIVE.value
+                if linked_user_id is not None
+                else ProfileStatus.SHADOW.value
+            ),
         )
         self.session.add(prof)
         await self.session.flush()
@@ -699,6 +704,8 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         if m.linked_user_id is not None:
             return None
         m.linked_user_id = user_id
+        if m.status in (ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value):
+            m.status = ProfileStatus.ACTIVE.value
         m.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(m)

@@ -9,7 +9,7 @@ Mục tiêu:
 
 ## 1. Nguyên tắc chung
 
-- Tất cả Family APIs đều cần `Authorization: Bearer <access_token>`.
+- Hầu hết Family APIs cần `Authorization: Bearer <access_token>`. **Ngoại lệ:** `GET /families/invite/preview` (public).
 - `phone_number` phải gửi theo format E.164. Ví dụ:
   - `+84901234567`
   - `+14155550123`
@@ -101,6 +101,36 @@ export interface FamilyInvitePreview {
   /** ISO-8601; hết hạn theo cấu hình server (mặc định ~24h mỗi lần tạo/rotate) */
   expires_at: string;
 }
+
+/** Profile trong family chưa gắn tài khoản — dùng sau khi nhập mã mời (đã login). */
+export interface LinkableFamilyProfile {
+  profile_id: string;
+  health_profile_id: string | null;
+  full_name: string;
+  dob?: string | null;
+  gender?: string | null;
+  avatar_url?: string | null;
+  /** Thường là SHADOW hoặc PENDING_LINK */
+  status: string | null;
+  linked_user_id: null;
+}
+
+export interface ListLinkableProfilesResponse {
+  family_id: string;
+  family_name: string;
+  invite_code: string;
+  profiles: LinkableFamilyProfile[];
+}
+
+export interface LinkInviteProfileResponse {
+  success: boolean;
+  family_id: string;
+  profile_id: string;
+  health_profile_id: string | null;
+  linked_user_id: string;
+  membership_created: boolean;
+  post_login_flow_completed: boolean;
+}
 ```
 
 Ghi chú:
@@ -108,7 +138,8 @@ Ghi chú:
   - `displayRole = relation_role ?? role`
 - `GET /families` có thể trả `invites = null`.
 - `GET /families/{family_id}` là response detail đầy đủ hơn.
-- **Mã mời công khai** (`invite_code` trên family): backend lưu dưới dạng token **dùng một lần** và có **thời gian hết hạn**. Sau khi một user join thành công bằng mã đó, mã đó **không** dùng lại được; OWNER cần **rotate** để tạo mã mới nếu muốn mời tiếp bằng link/QR.
+- **Mã mời công khai** (`invite_code` trên family): backend lưu dưới dạng token **dùng một lần** và có **thời gian hết hạn**. Sau khi một user **join** (`POST /families/join`) hoặc **link vào profile có sẵn** (`POST /families/invite/link-profile`) thành công, mã đó **không** dùng lại được; OWNER cần **rotate** để tạo mã mới nếu muốn mời tiếp bằng link/QR.
+- **Proxy profile** tạo bởi `POST /families/{family_id}/profiles` (chưa có `linked_user_id`) được gán `status = SHADOW` để hiện trong flow **claim profile** (mục 4.10.4).
 
 ## 3. Mapping từ yêu cầu UI sang backend hiện tại
 
@@ -124,6 +155,8 @@ Ghi chú:
 | Từ chối lời mời | `POST /families/join` với `action=reject` | Không có `/family-invites/{id}/reject` |
 | Preview mã QR / deep-link (trước login) | `GET /families/invite/preview?invite_code=...` | **Không** cần `Authorization` |
 | Join bằng mã mời công khai | `POST /families/join` với `invite_code` | Cần Bearer; mã **single-use**, có `expires_at` |
+| Danh sách profile chưa có account (theo mã mời) | `GET /families/invite/linkable-profiles?invite_code=...` | Cần Bearer; mã còn **PENDING** + chưa hết hạn |
+| Gắn tài khoản hiện tại vào profile có sẵn | `POST /families/invite/link-profile` | Body: `invite_code`, `profile_id`; **consume** mã; giữ `health_profile` cũ |
 | Đổi mã mời công khai (OWNER) | `POST /families/{family_id}/invite/rotate` | Invalidates mã đang hiển thị, cấp mã + TTL mới |
 | Tạo proxy profile | `POST /families/{family_id}/profiles` | Không có `/members/proxy-profile` |
 | Danh sách members | `GET /families/{family_id}/members` | Dùng cho list member |
@@ -575,6 +608,41 @@ Response `200`:
 1. Quét QR → mở app với `invite_code` trong query → gọi `GET /families/invite/preview`.
 2. Nếu `valid` → hiển thị tên gia đình + thời hạn; nút “Tham gia” → login/register → `POST /families/join`.
 
+#### 4.10.4. “Tôi đã có gia đình” — chọn profile chưa có tài khoản (claim)
+
+Dùng khi OWNER đã tạo **proxy profile** trong family (người chưa có app); user mới đăng nhập nhập mã mời và **chọn đúng dòng** trong danh sách để gắn `linked_user_id` vào profile + `health_profile` **đã có**, không tạo profile trống mới.
+
+**Bước 1 — danh sách profile claim được**
+
+```http
+GET /families/invite/linkable-profiles?invite_code=ABC123
+Authorization: Bearer <access_token>
+```
+
+Response `200`: `family_id`, `family_name`, `invite_code`, `profiles[]` (`profile_id`, `health_profile_id`, `full_name`, `dob`, `gender`, `avatar_url`, `status`, `linked_user_id` luôn `null`). Chỉ gồm profile **trong đúng family của mã**, `linked_user_id` null, `status` là `SHADOW` hoặc `PENDING_LINK`, chưa xóa.
+
+**Bước 2 — gắn account vào profile đã chọn**
+
+```http
+POST /families/invite/link-profile
+Authorization: Bearer <access_token>
+```
+
+```json
+{
+  "invite_code": "ABC123",
+  "profile_id": "bf94402d-5f25-4d07-847d-cff4b2ac1111"
+}
+```
+
+Response `200`: `success`, `family_id`, `profile_id`, `health_profile_id`, `linked_user_id`, `membership_created` (thường `false` nếu proxy đã có membership), `post_login_flow_completed: true`.
+
+- Mã mời **single-use**: sau `link-profile` thành công, lần gọi tiếp với cùng mã → `410` hoặc `404` tùy trạng thái token.
+- `410 Gone`: mã hết hạn / không còn PENDING (đã dùng, revoke, rotate) — áp dụng rõ cho hai endpoint này.
+- `409`: user **đã là member** family đó; profile đã có người link; profile không thuộc family của mã; profile không ở trạng thái claim được.
+
+**So với `POST /families/join`:** `join` tạo/ghi nhận **personal profile** của user rồi thêm membership; `link-profile` **không** tạo profile mới — chỉ link vào `profile_id` đã có.
+
 ### 4.11. Đổi mã mời công khai (OWNER — sau khi mã cũ hết dùng hoặc lộ mã)
 
 Chỉ **OWNER** gọi được.
@@ -627,7 +695,8 @@ GET /profiles/{profile_id}/health
 - `400`: body không hợp lệ, sai format phone, thiếu field cần thiết
 - `403`: không đủ quyền
 - `404`: family/invite/profile không tồn tại; **join bằng `invite_code`**: mã sai, hết hạn, đã dùng (single-use), hoặc đã rotate
-- `409`: đã là member, đã có pending invite, conflict nghiệp vụ
+- `410`: **linkable-profiles / link-profile** — mã không còn dùng được (hết hạn, đã consume, revoked, rotate)
+- `409`: đã là member, đã có pending invite, conflict nghiệp vụ; **link-profile**: profile đã link, không đúng family, không claim được; **linkable-profiles**: user đã là member family đó
 
 ## 7. Luồng gọi API FE nên implement
 
@@ -658,8 +727,10 @@ GET /profiles/{profile_id}/health
 ### E. Join bằng mã mời công khai (QR / link)
 
 1. (Không login) `GET /families/invite/preview?invite_code=...` — hiển thị tên gia đình + `valid` + `expires_at`.
-2. User đăng nhập xong → `POST /families/join` với `invite_code` (+ `full_name` nếu chưa có personal profile).
-3. Nếu join thành công: refresh `GET /families`; **mã hiện tại không dùng lại** cho người khác.
+2. User đăng nhập xong → một trong hai:
+   - **Tài khoản mới / vào family bằng personal profile:** `POST /families/join` với `invite_code` (+ `full_name` nếu chưa có personal profile).
+   - **Đã có sẵn proxy profile trong family:** `GET /families/invite/linkable-profiles` → chọn dòng → `POST /families/invite/link-profile`.
+3. Nếu thành công: refresh `GET /families`; **mã hiện tại không dùng lại** cho người khác.
 4. OWNER muốn mời thêm người bằng link mới: `POST /families/{family_id}/invite/rotate`, lấy `invite_code` mới từ response để share/QR.
 
 ## 8. Tóm tắt ngắn cho FE
@@ -672,6 +743,8 @@ GET /profiles/{profile_id}/health
   - `GET /families/invites`
   - `POST /families/{family_id}/invite-by-phone`
   - `GET /families/invite/preview` (public — preview mã công khai)
+  - `GET /families/invite/linkable-profiles` (đã login — danh sách profile chưa account)
+  - `POST /families/invite/link-profile` (đã login — claim profile + consume mã)
   - `POST /families/join` (invite code **single-use** + có hạn; inbox vẫn dùng `action` + `invite_id`)
   - `POST /families/{family_id}/invite/rotate` (OWNER — tạo mã mới)
   - `POST /families/{family_id}/profiles`

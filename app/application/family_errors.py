@@ -19,3 +19,7 @@ class ForbiddenError(FamilyAppError):
 
 class ConflictError(FamilyAppError):
     """409 — unique / business conflict."""
+
+
+class GoneError(FamilyAppError):
+    """410 — resource existed but is no longer usable (expired/revoked/consumed)."""

@@ -26,13 +26,17 @@ from app.application.dtos.family_dto import (
     InviteActionResponse,
     InviteByPhoneRequest,
     InviteByPhoneResponse,
+    LinkInviteProfileRequest,
+    LinkInviteProfileResponse,
+    LinkableProfileResponse,
+    ListLinkableProfilesResponse,
     InvitePreviewResponse,
     JoinFamilyRequest,
     PatchFamilyRequest,
     ProfileResponse,
     UserSearchByPhoneResponse,
 )
-from app.application.family_errors import ConflictError, ForbiddenError, NotFoundError
+from app.application.family_errors import ConflictError, ForbiddenError, GoneError, NotFoundError
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
 from app.domain.entities.user import User
@@ -58,6 +62,11 @@ def _handle_family_error(exc: Exception) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=exc.message or "Conflict",
+        ) from exc
+    if isinstance(exc, GoneError):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=exc.message or "Gone",
         ) from exc
     if isinstance(exc, ValueError):
         raise HTTPException(
@@ -161,6 +170,47 @@ async def preview_invite(
             valid=prev.valid,
             expires_at=prev.expires_at,
         )
+    except Exception as e:
+        _handle_family_error(e)
+        raise
+
+
+@router.get(
+    "/invite/linkable-profiles",
+    response_model=ListLinkableProfilesResponse,
+    summary="List claimable profiles by invite code",
+)
+async def list_linkable_profiles(
+    invite_code: str = Query(..., min_length=1, max_length=64),
+    user: User = Depends(get_current_user),
+    svc: FamiliesService = Depends(get_families_service),
+) -> ListLinkableProfilesResponse:
+    try:
+        payload = await svc.list_linkable_profiles_by_invite(user.id, invite_code)
+        return ListLinkableProfilesResponse(
+            family_id=payload["family_id"],
+            family_name=payload["family_name"],
+            invite_code=payload["invite_code"],
+            profiles=[LinkableProfileResponse(**row) for row in payload["profiles"]],
+        )
+    except Exception as e:
+        _handle_family_error(e)
+        raise
+
+
+@router.post(
+    "/invite/link-profile",
+    response_model=LinkInviteProfileResponse,
+    summary="Link current user to selected family profile via invite",
+)
+async def link_profile_by_invite(
+    body: LinkInviteProfileRequest,
+    user: User = Depends(get_current_user),
+    svc: FamiliesService = Depends(get_families_service),
+) -> LinkInviteProfileResponse:
+    try:
+        payload = await svc.link_profile_by_invite(user.id, body)
+        return LinkInviteProfileResponse(**payload)
     except Exception as e:
         _handle_family_error(e)
         raise

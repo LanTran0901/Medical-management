@@ -14,12 +14,13 @@ from app.application.dtos.family_dto import (
     FamilyInviteListRequest,
     InviteByPhoneRequest,
     JoinFamilyRequest,
+    LinkInviteProfileRequest,
     PatchFamilyRequest,
     PatchHealthDetailRequest,
     PatchMembershipRoleRequest,
     PatchProfileRequest,
 )
-from app.application.family_errors import ConflictError, ForbiddenError, NotFoundError
+from app.application.family_errors import ConflictError, ForbiddenError, GoneError, NotFoundError
 from app.application.ports.family_port import FamilyRepositoryPort
 from app.application.ports.user_port import UserRepositoryPort
 from app.application.usecases.access_control_usecases import AccessControlService
@@ -33,7 +34,7 @@ from app.domain.entities.family import (
     PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
-from app.domain.entities.profile import Profile
+from app.domain.entities.profile import Profile, ProfileStatus
 from app.domain.services.family_permission import has_at_least
 
 
@@ -408,14 +409,6 @@ class FamiliesService:
         await self._access.require_family_member(family_id, user_id)
         return await self._repo.list_profiles_in_family(family_id)
 
-    async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
-        await self._access.require_family_member(family_id, user_id)
-        m = await self._membership_or_404(family_id, user_id)
-        rows = await self._repo.list_profiles_in_family(family_id)
-        if not has_at_least(m.role, FamilyRole.ADMIN):
-            rows = [p for p in rows if p.linked_user_id == user_id]
-        return rows
-
     async def list_my_linked_profiles(
         self,
         user_id: UUID,
@@ -440,6 +433,100 @@ class FamiliesService:
         if prev is None:
             raise NotFoundError("Invalid or expired invite code")
         return prev
+
+    async def list_linkable_profiles_by_invite(self, user_id: UUID, invite_code: str) -> dict:
+        code = invite_code.strip()
+        prev = await self._repo.preview_public_invite(code)
+        if prev is None:
+            raise NotFoundError("Invite code not found")
+        if not prev.valid:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
+            raise ConflictError("Already a member of this family")
+
+        profiles = await self._repo.list_profiles_in_family(prev.family_id)
+        candidate_profiles = [
+            p
+            for p in profiles
+            if p.linked_user_id is None
+            and p.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
+        ]
+        health_map = await self._repo.list_health_for_profiles([p.id for p in candidate_profiles])
+
+        return {
+            "family_id": prev.family_id,
+            "family_name": prev.family_name,
+            "invite_code": prev.invite_code,
+            "profiles": [
+                {
+                    "profile_id": p.id,
+                    "health_profile_id": health_map.get(p.id).profile_id if health_map.get(p.id) else None,
+                    "full_name": p.full_name,
+                    "dob": p.dob,
+                    "gender": p.gender,
+                    "avatar_url": p.avatar_url,
+                    "status": p.status,
+                    "linked_user_id": p.linked_user_id,
+                }
+                for p in candidate_profiles
+            ],
+        }
+
+    async def link_profile_by_invite(self, user_id: UUID, body: LinkInviteProfileRequest) -> dict:
+        code = body.invite_code.strip()
+        prev = await self._repo.preview_public_invite(code)
+        if prev is None:
+            raise NotFoundError("Invite code not found")
+        if not prev.valid:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
+            raise ConflictError("Already a member of this family")
+
+        if not await self._repo.profile_in_family(body.profile_id, prev.family_id):
+            raise ConflictError("Profile does not belong to invite family")
+
+        profile = await self._repo.get_profile(body.profile_id)
+        if profile is None:
+            raise NotFoundError("Profile not found")
+        if profile.linked_user_id is not None:
+            raise ConflictError("Profile has already been linked")
+        if profile.status not in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}:
+            raise ConflictError("Profile is not claimable")
+
+        fam = await self._repo.consume_pending_public_invite(code, user_id)
+        if fam is None:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        linked = await self._repo.link_profile_to_user(body.profile_id, user_id)
+        if linked is None:
+            raise ConflictError("Profile has already been linked")
+
+        membership_created = False
+        if not await self._repo.has_membership(fam.id, body.profile_id):
+            try:
+                await self._repo.create_membership(
+                    family_id=fam.id,
+                    profile_id=body.profile_id,
+                    role=FamilyRole.MEMBER,
+                    relation_role=None,
+                    added_by=user_id,
+                )
+                membership_created = True
+            except IntegrityError:
+                membership_created = False
+
+        health = await self._repo.get_health(body.profile_id)
+        return {
+            "success": True,
+            "family_id": fam.id,
+            "profile_id": body.profile_id,
+            "health_profile_id": health.profile_id if health else None,
+            "linked_user_id": user_id,
+            "membership_created": membership_created,
+            "post_login_flow_completed": True,
+        }
 
     async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
         m = await self._membership_or_404(family_id, user_id)
