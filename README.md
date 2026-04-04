@@ -38,8 +38,11 @@ MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/<db-name>?retryWr
 MONGODB_DB_NAME=""
 GROQ_API_KEY="gsk_xxx"
 GROQ_MODEL="llama-3.1-8b-instant"
-RAG_KNOWLEDGE_COLLECTION="rag_knowledge"
 RAG_CHAT_HISTORY_COLLECTION="rag_chat_history"
+RAG_EMBEDDING_MODEL="intfloat/multilingual-e5-small"
+RAG_EMBEDDING_DIMENSIONS=384
+RAG_TOP_K=6
+RAG_PER_TYPE_LIMIT=3
 ```
 
 # PostgreSQL (relational store)
@@ -132,6 +135,34 @@ Cau hinh: `.coveragerc` + `pytest.ini` (`addopts` voi `--cov=app`). Muon dua vao
 ## Kien truc
 
 Xem [CLEAN_ARCHITECTURE.md](./CLEAN_ARCHITECTURE.md)
+
+## RAG y te voi PostgreSQL
+
+Chatbot `POST /rag/chat` hien tai truy xuat context tu 3 bang PostgreSQL:
+- `diseases`
+- `drugs`
+- `vaccines`
+
+RAG dung `pgvector` de luu embedding ngay tren cac bang nay (`embedding`) va luu van ban phuc vu truy xuat (`search_document`).
+
+### Khoi tao / cap nhat vector
+
+Sau khi migrate xong, hay seed hoac reindex de sinh embedding:
+
+```powershell
+# Seed lai tu file JSON va sinh embedding
+pipenv run python -m app.scripts.seed_medical_dictionary_pg --per-type 1000
+
+# Hoac backfill embedding cho du lieu da ton tai trong PostgreSQL
+pipenv run python -m app.scripts.reindex_medical_dictionary_vectors --batch-size 64
+```
+
+Neu muon bo qua sinh embedding khi seed:
+
+```powershell
+pipenv run python -m app.scripts.seed_medical_dictionary_pg --per-type 1000 --skip-embeddings
+```
+
 ## Test luong RAG
 
 Endpoint:
@@ -143,11 +174,15 @@ Body:
 ```json
 {
   "session_id": "demo-session-1",
-  "question": "Quy trinh tiep nhan benh nhan ngoai tru?"
+  "question": "Lich tiem Gardasil 9 nhu the nao?"
 }
 ```
 
-Giai doan hien tai:
-- Chua bat buoc co knowledge.
-- Neu collection `rag_knowledge` trong Mongo trong, he thong van tra loi bang LLM.
-- Moi cau hoi/tra loi se duoc luu vao `rag_chat_history`.
+Ket qua tra ve:
+- `answer`: cau tra loi da duoc tong hop tu context noi bo
+- `used_context_count`: so nguon da dua vao prompt
+- `sources`: danh sach disease/drug/vaccine da duoc truy xuat
+
+Luu y:
+- Lich su hoi dap van co the duoc luu vao collection Mongo `rag_chat_history`.
+- Neu chua co embedding, he thong se fallback sang keyword search tren 3 bang noi bo.

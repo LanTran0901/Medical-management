@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert
 
 from app.core.config import settings
 from app.infrastructure.config.database.postgres.models.medical_dictionary_models import (
@@ -15,6 +14,8 @@ from app.infrastructure.config.database.postgres.models.medical_dictionary_model
     DrugModel,
     VaccineModel,
 )
+from app.domain.entities.medical_dictionary import DictionaryEntryType
+from app.services.rag_support import build_search_document, embed_documents
 
 
 FILE_MAP: dict[str, tuple[type, str]] = {
@@ -102,7 +103,12 @@ def _summary(payload: dict[str, str]) -> str | None:
     return None
 
 
-def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]:
+def _load_rows(
+    data_dir: Path,
+    kind: str,
+    per_type: int | None,
+    include_embeddings: bool,
+) -> list[dict[str, Any]]:
     _, filename = FILE_MAP[kind]
     file_path = data_dir / filename
     if not file_path.exists():
@@ -112,28 +118,53 @@ def _load_rows(data_dir: Path, kind: str, per_type: int) -> list[dict[str, Any]]
         raw = json.load(f)
 
     rows: list[dict[str, Any]] = []
+    search_documents: list[str] = []
     for idx, line in enumerate(raw, start=1):
-        if len(rows) >= per_type:
+        if per_type is not None and len(rows) >= per_type:
             break
         payload = _parse_record(str(line))
         if not payload:
             continue
         fallback = f"{kind}-{idx}"
         title = _best_title(kind, payload, fallback)
+        entry_type = {
+            "disease": DictionaryEntryType.DISEASE,
+            "drug": DictionaryEntryType.DRUG,
+            "vaccine": DictionaryEntryType.VACCINE,
+        }[kind]
+        search_document = build_search_document(
+            entry_type=entry_type,
+            title=title,
+            aliases=_aliases(payload, title),
+            summary=_summary(payload),
+            content=payload,
+        )
         rows.append(
             {
-                "source_index": idx,
                 "title": title,
                 "aliases": _aliases(payload, title),
                 "summary": _summary(payload),
                 "content": payload,
+                "search_document": search_document,
+                "embedding": None,
                 "source_file": filename,
             }
         )
+        search_documents.append(search_document)
+
+    if include_embeddings and search_documents:
+        embeddings = embed_documents(search_documents)
+        for row, embedding in zip(rows, embeddings, strict=True):
+            row["embedding"] = embedding
     return rows
 
 
-def seed_medical_dictionary(per_type: int, drop_legacy: bool) -> dict[str, int]:
+def seed_medical_dictionary(
+    per_type: int | None,
+    drop_legacy: bool,
+    include_embeddings: bool,
+    truncate_first: bool,
+) -> dict[str, int]:
     engine = sa.create_engine(settings.POSTGRES_SYNC_URL, future=True)
     counters = {"disease": 0, "drug": 0, "vaccine": 0}
     data_dir = Path(settings.data_dir)
@@ -149,24 +180,19 @@ def seed_medical_dictionary(per_type: int, drop_legacy: bool) -> dict[str, int]:
                 conn.execute(sa.text("DROP TABLE IF EXISTS disease_dictionary_entries CASCADE"))
                 conn.execute(sa.text("DROP TABLE IF EXISTS drug_dictionary_entries CASCADE"))
                 conn.execute(sa.text("DROP TABLE IF EXISTS vaccine_dictionary_entries CASCADE"))
+            if truncate_first:
+                conn.execute(sa.text("TRUNCATE TABLE diseases, drugs, vaccines RESTART IDENTITY CASCADE"))
 
             for kind, (model, _) in FILE_MAP.items():
-                rows = _load_rows(data_dir=data_dir, kind=kind, per_type=per_type)
+                rows = _load_rows(
+                    data_dir=data_dir,
+                    kind=kind,
+                    per_type=per_type,
+                    include_embeddings=include_embeddings,
+                )
                 if not rows:
                     continue
-                stmt = insert(model).values(rows)
-                upsert_stmt = stmt.on_conflict_do_update(
-                    index_elements=[model.source_index],
-                    set_={
-                        "title": stmt.excluded.title,
-                        "aliases": stmt.excluded.aliases,
-                        "summary": stmt.excluded.summary,
-                        "content": stmt.excluded.content,
-                        "source_file": stmt.excluded.source_file,
-                        "updated_at": sa.text("now()"),
-                    },
-                )
-                conn.execute(upsert_stmt)
+                conn.execute(sa.insert(model), rows)
                 counters[kind] = len(rows)
         return counters
     finally:
@@ -182,13 +208,33 @@ def main() -> None:
         help="Number of entries for each table (disease/drug/vaccine)",
     )
     parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Seed all rows from each JSON file",
+    )
+    parser.add_argument(
         "--drop-legacy",
         action="store_true",
         help="Drop legacy medical_dictionary_entries table",
     )
+    parser.add_argument(
+        "--truncate-first",
+        action="store_true",
+        help="Delete existing rows in diseases, drugs, vaccines before seeding",
+    )
+    parser.add_argument(
+        "--skip-embeddings",
+        action="store_true",
+        help="Seed data without generating pgvector embeddings",
+    )
     args = parser.parse_args()
 
-    counters = seed_medical_dictionary(per_type=max(1, args.per_type), drop_legacy=args.drop_legacy)
+    counters = seed_medical_dictionary(
+        per_type=None if args.all else max(1, args.per_type),
+        drop_legacy=args.drop_legacy,
+        include_embeddings=not args.skip_embeddings,
+        truncate_first=args.truncate_first,
+    )
     print(
         "Seeded rows -> "
         f"disease={counters['disease']}, drug={counters['drug']}, vaccine={counters['vaccine']}"

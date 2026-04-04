@@ -15,6 +15,8 @@ alembic = "*"
 psycopg2-binary = "*"
 langgraph = "*"
 langchain-groq = "*"
+pgvector = "*"
+fastembed = "*"
 pyjwt = "*"
 passlib = {extras = ["bcrypt"], version = "*"}
 bcrypt = "<4.0.0"

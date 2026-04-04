@@ -19,3 +19,9 @@ class MedicalDictionaryEntry:
 	summary: str | None
 	content: dict[str, str]
 	source_file: str
+
+
+@dataclass(frozen=True, slots=True)
+class MedicalDictionarySearchMatch:
+	entry: MedicalDictionaryEntry
+	score: float

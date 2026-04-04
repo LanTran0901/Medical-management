@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.entities.medical_dictionary import DictionaryEntryType, MedicalDictionaryEntry
+from app.domain.entities.medical_dictionary import (
+	DictionaryEntryType,
+	MedicalDictionaryEntry,
+	MedicalDictionarySearchMatch,
+)
 from app.infrastructure.config.database.postgres.models.medical_dictionary_models import (
 	DiseaseModel,
 	DrugModel,
@@ -41,6 +44,7 @@ class MedicalDictionaryRepository:
 		*,
 		entry_type: DictionaryEntryType,
 		q: str,
+		limit: int | None = None,
 	) -> list[MedicalDictionaryEntry]:
 		model = self._MODEL_MAP[entry_type]
 		pattern = f"%{q}%"
@@ -50,13 +54,89 @@ class MedicalDictionaryRepository:
 				sa.or_(
 					model.title.ilike(pattern),
 					model.summary.ilike(pattern),
+					model.search_document.ilike(pattern),
 					sa.cast(model.aliases, sa.Text).ilike(pattern),
 				)
 			)
 			.order_by(model.title.asc())
 		)
+		if limit is not None:
+			stmt = stmt.limit(limit)
 		rows = (await self._session.execute(stmt)).scalars().all()
 		return [self._to_entity(row, entry_type) for row in rows]
+
+	async def _semantic_search_one_type(
+		self,
+		*,
+		entry_type: DictionaryEntryType,
+		query_embedding: list[float],
+		limit: int,
+	) -> list[MedicalDictionarySearchMatch]:
+		model = self._MODEL_MAP[entry_type]
+		distance = model.embedding.cosine_distance(query_embedding)
+		stmt = (
+			sa.select(model, distance.label("distance"))
+			.where(model.embedding.is_not(None))
+			.order_by(distance.asc(), model.title.asc())
+			.limit(limit)
+		)
+		rows = (await self._session.execute(stmt)).all()
+		matches: list[MedicalDictionarySearchMatch] = []
+		for row in rows:
+			entry = self._to_entity(row[0], entry_type)
+			distance_value = float(row.distance if row.distance is not None else 1.0)
+			score = max(0.0, 1.0 - distance_value)
+			matches.append(MedicalDictionarySearchMatch(entry=entry, score=score))
+		return matches
+
+	async def semantic_search(
+		self,
+		*,
+		query_embedding: list[float],
+		top_k: int,
+		per_type_limit: int,
+	) -> list[MedicalDictionarySearchMatch]:
+		bucket: list[MedicalDictionarySearchMatch] = []
+		for current_type in (
+			DictionaryEntryType.DISEASE,
+			DictionaryEntryType.DRUG,
+			DictionaryEntryType.VACCINE,
+		):
+			bucket.extend(
+				await self._semantic_search_one_type(
+					entry_type=current_type,
+					query_embedding=query_embedding,
+					limit=per_type_limit,
+				)
+			)
+
+		bucket.sort(key=lambda item: item.score, reverse=True)
+		return bucket[:top_k]
+
+	async def keyword_search_for_rag(
+		self,
+		*,
+		q: str,
+		top_k: int,
+		per_type_limit: int,
+	) -> list[MedicalDictionarySearchMatch]:
+		bucket: list[MedicalDictionarySearchMatch] = []
+		for current_type in (
+			DictionaryEntryType.DISEASE,
+			DictionaryEntryType.DRUG,
+			DictionaryEntryType.VACCINE,
+		):
+			items = await self._search_one_type(
+				entry_type=current_type,
+				q=q,
+				limit=per_type_limit,
+			)
+			for rank, entry in enumerate(items):
+				score = max(0.05, 0.5 - (rank * 0.05))
+				bucket.append(MedicalDictionarySearchMatch(entry=entry, score=score))
+
+		bucket.sort(key=lambda item: item.score, reverse=True)
+		return bucket[:top_k]
 
 	async def search(
 		self,
