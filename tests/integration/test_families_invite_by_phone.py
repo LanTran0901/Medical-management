@@ -20,7 +20,7 @@ def test_invite_by_phone_success_owner(client) -> None:
     invited_tok = login_access_token(client, invited_suf)
     me = client.get("/users/me", headers=auth_headers(invited_tok))
     assert me.status_code == 200, me.text
-    invited_user_id = me.json()["id"]
+    invited_user_id = me.json()["user"]["id"]
 
     created = client.post(
         "/families",

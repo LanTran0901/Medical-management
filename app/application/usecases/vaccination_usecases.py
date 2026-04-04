@@ -14,6 +14,7 @@ from app.application.dtos.vaccination_dto import (
     PatchVaccinationDoseRequest,
     SubscribeUserVaccinationRequest,
     UserVaccinationResponse,
+    UserVaccinationWithDosesResponse,
     VaccinationDoseResponse,
     VaccinationRecommendationResponse,
 )
@@ -102,6 +103,20 @@ class VaccinationService:
         out: list[UserVaccinationResponse] = []
         for uv, rec in pairs:
             out.append(await self._to_uv_response(uv, rec))
+        return out
+
+    async def list_profile_vaccinations_with_doses(
+        self, profile_id: UUID, user_id: UUID
+    ) -> list[UserVaccinationWithDosesResponse]:
+        await self._access.require_medical_profile_view(profile_id, user_id)
+        pairs = await self._vac.list_user_vaccinations_for_profile(profile_id)
+        today = date.today()
+        out: list[UserVaccinationWithDosesResponse] = []
+        for uv, rec in pairs:
+            base = await self._to_uv_response(uv, rec)
+            dose_rows = await self._vac.list_doses(uv.id)
+            doses = [self._to_dose_response(d, today) for d in dose_rows]
+            out.append(UserVaccinationWithDosesResponse(**{**base.model_dump(), "doses": doses}))
         return out
 
     async def subscribe(

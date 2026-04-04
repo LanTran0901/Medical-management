@@ -20,14 +20,20 @@ from app.application.dtos.family_dto import (
     PatchProfileRequest,
 )
 from app.application.family_errors import ConflictError, ForbiddenError, NotFoundError
+from app.application.ports.access_control_port import MembershipAccessContext
+from app.application.usecases.access_control_usecases import AccessControlService
 from app.application.usecases.family_usecases import FamiliesService
-from app.domain.entities.family import Family, FamilyMembership, FamilyRole
+from app.domain.entities.family import (
+    Family,
+    FamilyInvite,
+    FamilyInviteStatus,
+    FamilyMembership,
+    FamilyRole,
+    PublicInvitePreview,
+)
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile
 from app.domain.entities.user import User, UserStatus
-
-pytestmark = pytest.mark.skip(reason="Legacy tests pending refresh after access-control refactor")
-
 
 def _dt() -> datetime:
     return datetime.now(timezone.utc)
@@ -62,6 +68,37 @@ def _profile(pid=None, owner=None, linked=None, name="P") -> Profile:
     )
 
 
+def _invite_preview(fam: Family, *, valid: bool = True) -> PublicInvitePreview:
+    return PublicInvitePreview(
+        family_id=fam.id,
+        family_name=fam.family_name,
+        invite_code=fam.invite_code,
+        valid=valid,
+        expires_at=_dt(),
+    )
+
+
+def _family_invite(
+    *,
+    iid=None,
+    fid=None,
+    role=FamilyRole.MEMBER,
+    invited_by=None,
+    phone: str | None = None,
+    user_id=None,
+) -> FamilyInvite:
+    return FamilyInvite(
+        id=iid or uuid4(),
+        family_id=fid or uuid4(),
+        role=role,
+        status=FamilyInviteStatus.PENDING,
+        invited_by=invited_by or uuid4(),
+        invited_at=_dt(),
+        phone_number=phone,
+        user_id=user_id,
+    )
+
+
 def _mem(mid=None, fid=None, pid=None, role=FamilyRole.MEMBER, uid=None) -> FamilyMembership:
     return FamilyMembership(
         id=mid or uuid4(),
@@ -86,7 +123,9 @@ def _user_entity(uid=None, phone_number: str | None = None) -> User:
 
 @pytest.fixture
 def repo() -> AsyncMock:
-    return AsyncMock()
+    m = AsyncMock()
+    m.get_family = AsyncMock(return_value=None)
+    return m
 
 
 @pytest.fixture
@@ -95,8 +134,48 @@ def users() -> AsyncMock:
 
 
 @pytest.fixture
-def svc(repo: AsyncMock, users: AsyncMock) -> FamiliesService:
-    return FamiliesService(repo, users)
+def access_port(repo: AsyncMock) -> AsyncMock:
+    port = AsyncMock()
+    # Luôn gọi qua `repo` hiện tại — không gán trực tiếp `repo.get_user_membership_in_family`
+    # vì test sẽ thay thế thuộc tính đó; nếu gán một lần lúc fixture chạy thì port giữ mock cũ.
+    async def _get_user_membership_in_family(family_id, user_id):
+        return await repo.get_user_membership_in_family(family_id, user_id)
+
+    port.get_user_membership_in_family = AsyncMock(side_effect=_get_user_membership_in_family)
+
+    async def _family_exists(fid):
+        fam = await repo.get_family(fid)
+        return fam is not None
+
+    port.family_exists = AsyncMock(side_effect=_family_exists)
+
+    async def _get_membership_context(mid):
+        mem = await repo.get_membership(mid)
+        if mem is None:
+            return None
+        prof = await repo.get_profile(mem.profile_id)
+        if prof is None:
+            return None
+        return MembershipAccessContext(
+            membership=mem,
+            owner_user_id=prof.owner_user_id,
+            linked_user_id=prof.linked_user_id,
+        )
+
+    port.get_membership_context = AsyncMock(side_effect=_get_membership_context)
+    port.list_user_memberships_for_families = AsyncMock(return_value=[])
+    port.get_profile_context = AsyncMock(return_value=None)
+    port.get_medicine_item_context = AsyncMock(return_value=None)
+    port.get_medical_record_context = AsyncMock(return_value=None)
+    port.get_attachment_context = AsyncMock(return_value=None)
+    port.get_user_vaccination_context = AsyncMock(return_value=None)
+    port.get_vaccination_dose_context = AsyncMock(return_value=None)
+    return port
+
+
+@pytest.fixture
+def svc(repo: AsyncMock, users: AsyncMock, access_port: AsyncMock) -> FamiliesService:
+    return FamiliesService(repo, users, AccessControlService(access_port))
 
 
 @pytest.mark.asyncio
@@ -132,14 +211,15 @@ async def test_patch_family_forbidden_for_member(repo: AsyncMock, svc: FamiliesS
 
 @pytest.mark.asyncio
 async def test_join_invalid_code(repo: AsyncMock, svc: FamiliesService) -> None:
-    repo.find_family_by_invite_code = AsyncMock(return_value=None)
+    repo.preview_public_invite = AsyncMock(return_value=None)
     with pytest.raises(NotFoundError, match="Invalid"):
         await svc.join_family(uuid4(), JoinFamilyRequest(invite_code="bad"))
 
 
 @pytest.mark.asyncio
 async def test_join_requires_full_name_when_no_profile(repo: AsyncMock, svc: FamiliesService) -> None:
-    repo.find_family_by_invite_code = AsyncMock(return_value=_family())
+    fam = _family()
+    repo.preview_public_invite = AsyncMock(return_value=_invite_preview(fam))
     repo.find_personal_profile_for_user = AsyncMock(return_value=None)
     with pytest.raises(ValueError, match="full_name"):
         await svc.join_family(uuid4(), JoinFamilyRequest(invite_code="ok", full_name=None))
@@ -150,7 +230,7 @@ async def test_join_conflict_when_already_member(repo: AsyncMock, svc: FamiliesS
     uid = uuid4()
     fam = _family()
     prof = _profile(owner=uid, linked=uid)
-    repo.find_family_by_invite_code = AsyncMock(return_value=fam)
+    repo.preview_public_invite = AsyncMock(return_value=_invite_preview(fam))
     repo.find_personal_profile_for_user = AsyncMock(return_value=prof)
     repo.has_membership = AsyncMock(return_value=True)
     with pytest.raises(ConflictError):
@@ -162,9 +242,10 @@ async def test_join_conflict_on_integrity(repo: AsyncMock, svc: FamiliesService)
     uid = uuid4()
     fam = _family()
     prof = _profile(owner=uid, linked=uid)
-    repo.find_family_by_invite_code = AsyncMock(return_value=fam)
+    repo.preview_public_invite = AsyncMock(return_value=_invite_preview(fam))
     repo.find_personal_profile_for_user = AsyncMock(return_value=prof)
     repo.has_membership = AsyncMock(return_value=False)
+    repo.consume_pending_public_invite = AsyncMock(return_value=fam)
     repo.create_membership = AsyncMock(side_effect=IntegrityError("stmt", "params", Exception()))
     with pytest.raises(ConflictError):
         await svc.join_family(uid, JoinFamilyRequest(invite_code="ok", full_name="x"))
@@ -188,24 +269,31 @@ async def test_invite_by_phone_forbidden_for_member(
 
 
 @pytest.mark.asyncio
-async def test_invite_by_phone_not_found_user(
+async def test_invite_by_phone_unknown_number_creates_invite_without_user_id(
     repo: AsyncMock,
     users: AsyncMock,
     svc: FamiliesService,
 ) -> None:
     fid, inviter = uuid4(), uuid4()
+    fam = _family(fid=fid)
+    invite = _family_invite(fid=fid, invited_by=inviter, phone="+15551234567", user_id=None)
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.ADMIN),
     )
-    repo.get_family = AsyncMock(return_value=_family(fid=fid))
+    repo.get_family = AsyncMock(return_value=fam)
     users.get_by_phone = AsyncMock(return_value=None)
+    repo.find_pending_invite = AsyncMock(return_value=None)
+    repo.create_family_invite = AsyncMock(return_value=invite)
 
-    with pytest.raises(NotFoundError, match="phone number"):
-        await svc.invite_member_by_phone(
-            fid,
-            inviter,
-            InviteByPhoneRequest(phone_number="+15551234567", full_name="Invited"),
-        )
+    out = await svc.invite_member_by_phone(
+        fid,
+        inviter,
+        InviteByPhoneRequest(phone_number="+15551234567", full_name="Invited"),
+    )
+    assert out["dry_run"] is False
+    assert out["family"] is fam
+    assert out["invite"] is invite
+    repo.create_family_invite.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -221,6 +309,7 @@ async def test_invite_by_phone_requires_full_name_when_no_personal_profile(
     repo.get_family = AsyncMock(return_value=_family(fid=fid))
     users.get_by_phone = AsyncMock(return_value=_user_entity(invited, phone_number="+15551234567"))
     repo.find_personal_profile_for_user = AsyncMock(return_value=None)
+    repo.find_pending_invite = AsyncMock(return_value=None)
 
     with pytest.raises(ValueError, match="full_name"):
         await svc.invite_member_by_phone(
@@ -263,7 +352,6 @@ async def test_invite_by_phone_success(
     fid, inviter, invited, pid = uuid4(), uuid4(), uuid4(), uuid4()
     fam = _family(fid=fid, name="Home")
     prof = _profile(pid=pid, owner=invited, linked=invited)
-    mem = _mem(fid=fid, pid=pid, role=FamilyRole.MEMBER, uid=inviter)
 
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.OWNER),
@@ -272,17 +360,23 @@ async def test_invite_by_phone_success(
     users.get_by_phone = AsyncMock(return_value=_user_entity(invited, phone_number="+15551234567"))
     repo.find_personal_profile_for_user = AsyncMock(return_value=prof)
     repo.has_membership = AsyncMock(return_value=False)
-    repo.create_membership = AsyncMock(return_value=mem)
+    repo.find_pending_invite = AsyncMock(return_value=None)
+    invite = _family_invite(
+        fid=fid,
+        invited_by=inviter,
+        phone="+15551234567",
+        user_id=invited,
+    )
+    repo.create_family_invite = AsyncMock(return_value=invite)
 
-    out_fam, out_prof, out_mem, invited_user_id = await svc.invite_member_by_phone(
+    out = await svc.invite_member_by_phone(
         fid,
         inviter,
         InviteByPhoneRequest(phone_number="+15551234567", full_name="Invited"),
     )
-    assert out_fam is fam
-    assert out_prof is prof
-    assert out_mem is mem
-    assert invited_user_id == invited
+    assert out["dry_run"] is False
+    assert out["family"] is fam
+    assert out["invite"] is invite
 
 
 @pytest.mark.asyncio
@@ -297,15 +391,15 @@ async def test_rotate_forbidden_not_owner(repo: AsyncMock, svc: FamiliesService)
 
 @pytest.mark.asyncio
 async def test_patch_membership_not_owner(repo: AsyncMock, svc: FamiliesService) -> None:
-    fid, uid = uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
+    fid, uid, mid, pid = uuid4(), uuid4(), uuid4(), uuid4()
+    repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
+    repo.get_profile = AsyncMock(return_value=_profile(pid=pid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.ADMIN),
     )
     with pytest.raises(ForbiddenError):
         await svc.patch_membership_role(
-            fid,
-            uuid4(),
+            mid,
             uid,
             PatchMembershipRoleRequest(role=FamilyRole.MEMBER),
         )
@@ -394,14 +488,13 @@ async def test_patch_health_member_forbidden(repo: AsyncMock, svc: FamiliesServi
 async def test_delete_membership_self(repo: AsyncMock, svc: FamiliesService) -> None:
     uid = uuid4()
     mid, fid, pid = uuid4(), uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
     repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
     repo.get_profile = AsyncMock(return_value=_profile(pid=pid, linked=uid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.MEMBER),
     )
     repo.delete_membership = AsyncMock(return_value=True)
-    await svc.delete_membership(fid, mid, uid)
+    await svc.delete_membership(mid, uid)
     repo.delete_membership.assert_awaited()
 
 
@@ -440,7 +533,7 @@ async def test_list_profiles_delegates(repo: AsyncMock, svc: FamiliesService) ->
 
 
 @pytest.mark.asyncio
-async def test_list_profiles_member_only_self_linked(repo: AsyncMock, svc: FamiliesService) -> None:
+async def test_list_profiles_member_sees_full_family_list(repo: AsyncMock, svc: FamiliesService) -> None:
     fid, uid, pid_self, pid_other = uuid4(), uuid4(), uuid4(), uuid4()
     other = uuid4()
     mine = _profile(pid=pid_self, linked=uid)
@@ -450,7 +543,7 @@ async def test_list_profiles_member_only_self_linked(repo: AsyncMock, svc: Famil
     )
     repo.list_profiles_in_family = AsyncMock(return_value=[mine, theirs])
     out = await svc.list_profiles(fid, uid)
-    assert out == [mine]
+    assert out == [mine, theirs]
 
 
 @pytest.mark.asyncio
@@ -539,10 +632,22 @@ async def test_patch_health_ok(repo: AsyncMock, svc: FamiliesService) -> None:
 
 
 @pytest.mark.asyncio
-async def test_membership_or_404_raises(repo: AsyncMock, svc: FamiliesService) -> None:
+async def test_membership_or_404_raises_forbidden_when_family_exists(repo: AsyncMock, svc: FamiliesService) -> None:
     fid, uid = uuid4(), uuid4()
     repo.get_user_membership_in_family = AsyncMock(return_value=None)
-    with pytest.raises(NotFoundError, match="not a member"):
+    repo.get_family = AsyncMock(return_value=_family(fid=fid))
+    with pytest.raises(ForbiddenError, match="Not a member"):
+        await svc.get_family(fid, uid)
+
+
+@pytest.mark.asyncio
+async def test_get_family_not_found_when_family_row_missing(repo: AsyncMock, svc: FamiliesService) -> None:
+    fid, uid = uuid4(), uuid4()
+    repo.get_user_membership_in_family = AsyncMock(
+        return_value=_mem(fid=fid, role=FamilyRole.MEMBER),
+    )
+    repo.get_family = AsyncMock(return_value=None)
+    with pytest.raises(NotFoundError, match="Family not found"):
         await svc.get_family(fid, uid)
 
 
@@ -593,16 +698,20 @@ async def test_join_creates_personal_profile(repo: AsyncMock, svc: FamiliesServi
     uid = uuid4()
     fam = _family()
     new_prof = _profile(owner=uid, linked=uid, name="NewMe")
-    repo.find_family_by_invite_code = AsyncMock(return_value=fam)
+    mem = _mem(fid=fam.id, pid=new_prof.id, role=FamilyRole.MEMBER, uid=uid)
+    repo.preview_public_invite = AsyncMock(return_value=_invite_preview(fam))
     repo.find_personal_profile_for_user = AsyncMock(return_value=None)
     repo.create_personal_profile = AsyncMock(return_value=new_prof)
     repo.has_membership = AsyncMock(return_value=False)
-    repo.create_membership = AsyncMock(return_value=None)
-    out_fam, out_prof = await svc.join_family(
+    repo.consume_pending_public_invite = AsyncMock(return_value=fam)
+    repo.create_membership = AsyncMock(return_value=mem)
+    out = await svc.join_family(
         uid,
         JoinFamilyRequest(invite_code="ok", full_name="NewMe"),
     )
-    assert out_fam is fam and out_prof is new_prof
+    assert out["mode"] == "invite_code"
+    assert out["family_id"] == str(fam.id)
+    assert out["profile_id"] == str(new_prof.id)
     repo.create_personal_profile.assert_awaited_once()
 
 
@@ -640,15 +749,15 @@ async def test_list_members_delegates(repo: AsyncMock, svc: FamiliesService) -> 
 
 @pytest.mark.asyncio
 async def test_patch_membership_ok(repo: AsyncMock, svc: FamiliesService) -> None:
-    fid, uid, mid = uuid4(), uuid4(), uuid4()
+    fid, uid, mid, pid = uuid4(), uuid4(), uuid4(), uuid4()
     updated = _mem(mid=mid, fid=fid, role=FamilyRole.ADMIN)
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
+    repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
+    repo.get_profile = AsyncMock(return_value=_profile(pid=pid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.OWNER),
     )
     repo.update_membership_role = AsyncMock(return_value=updated)
     out = await svc.patch_membership_role(
-        fid,
         mid,
         uid,
         PatchMembershipRoleRequest(role=FamilyRole.ADMIN),
@@ -658,10 +767,9 @@ async def test_patch_membership_ok(repo: AsyncMock, svc: FamiliesService) -> Non
 
 @pytest.mark.asyncio
 async def test_patch_membership_not_found_wrong_family(repo: AsyncMock, svc: FamiliesService) -> None:
-    repo.membership_belongs_to_family = AsyncMock(return_value=False)
+    repo.get_membership = AsyncMock(return_value=None)
     with pytest.raises(NotFoundError, match="Membership not found"):
         await svc.patch_membership_role(
-            uuid4(),
             uuid4(),
             uuid4(),
             PatchMembershipRoleRequest(role=FamilyRole.MEMBER),
@@ -670,15 +778,15 @@ async def test_patch_membership_not_found_wrong_family(repo: AsyncMock, svc: Fam
 
 @pytest.mark.asyncio
 async def test_patch_membership_update_returns_none(repo: AsyncMock, svc: FamiliesService) -> None:
-    fid, uid, mid = uuid4(), uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
+    fid, uid, mid, pid = uuid4(), uuid4(), uuid4(), uuid4()
+    repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
+    repo.get_profile = AsyncMock(return_value=_profile(pid=pid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.OWNER),
     )
     repo.update_membership_role = AsyncMock(return_value=None)
     with pytest.raises(NotFoundError):
         await svc.patch_membership_role(
-            fid,
             mid,
             uid,
             PatchMembershipRoleRequest(role=FamilyRole.MEMBER),
@@ -687,32 +795,30 @@ async def test_patch_membership_update_returns_none(repo: AsyncMock, svc: Famili
 
 @pytest.mark.asyncio
 async def test_delete_membership_not_in_family(repo: AsyncMock, svc: FamiliesService) -> None:
-    repo.membership_belongs_to_family = AsyncMock(return_value=False)
+    repo.get_membership = AsyncMock(return_value=None)
     with pytest.raises(NotFoundError):
-        await svc.delete_membership(uuid4(), uuid4(), uuid4())
+        await svc.delete_membership(uuid4(), uuid4())
 
 
 @pytest.mark.asyncio
 async def test_delete_membership_target_missing(repo: AsyncMock, svc: FamiliesService) -> None:
-    mid, fid = uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
+    mid = uuid4()
     repo.get_membership = AsyncMock(return_value=None)
     with pytest.raises(NotFoundError):
-        await svc.delete_membership(fid, mid, uuid4())
+        await svc.delete_membership(mid, uuid4())
 
 
 @pytest.mark.asyncio
 async def test_delete_membership_admin_removes_other(repo: AsyncMock, svc: FamiliesService) -> None:
     uid, other_uid = uuid4(), uuid4()
     mid, fid, pid = uuid4(), uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
     repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
     repo.get_profile = AsyncMock(return_value=_profile(pid=pid, linked=other_uid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.ADMIN),
     )
     repo.delete_membership = AsyncMock(return_value=True)
-    await svc.delete_membership(fid, mid, uid)
+    await svc.delete_membership(mid, uid)
     repo.delete_membership.assert_awaited()
 
 
@@ -720,14 +826,13 @@ async def test_delete_membership_admin_removes_other(repo: AsyncMock, svc: Famil
 async def test_delete_membership_forbidden_non_admin_non_self(repo: AsyncMock, svc: FamiliesService) -> None:
     uid, other_uid = uuid4(), uuid4()
     mid, fid, pid = uuid4(), uuid4(), uuid4()
-    repo.membership_belongs_to_family = AsyncMock(return_value=True)
     repo.get_membership = AsyncMock(return_value=_mem(mid=mid, fid=fid, pid=pid))
     repo.get_profile = AsyncMock(return_value=_profile(pid=pid, linked=other_uid))
     repo.get_user_membership_in_family = AsyncMock(
         return_value=_mem(fid=fid, role=FamilyRole.MEMBER),
     )
     with pytest.raises(ForbiddenError):
-        await svc.delete_membership(fid, mid, uid)
+        await svc.delete_membership(mid, uid)
 
 
 @pytest.mark.asyncio
@@ -849,11 +954,11 @@ async def test_patch_profile_member_unlinked_profile_forbidden(repo: AsyncMock, 
 
 
 @pytest.mark.asyncio
-async def test_patch_profile_member_self_ok(repo: AsyncMock, svc: FamiliesService) -> None:
+async def test_patch_profile_admin_edits_self_linked_profile_ok(repo: AsyncMock, svc: FamiliesService) -> None:
     fid, uid, pid = uuid4(), uuid4(), uuid4()
     p = _profile(pid=pid, linked=uid)
     repo.get_user_membership_in_family = AsyncMock(
-        return_value=_mem(fid=fid, role=FamilyRole.MEMBER),
+        return_value=_mem(fid=fid, role=FamilyRole.ADMIN),
     )
     repo.profile_in_family = AsyncMock(return_value=True)
     repo.get_profile = AsyncMock(return_value=_profile(pid=pid, linked=uid))
@@ -886,10 +991,10 @@ async def test_patch_profile_repo_none(repo: AsyncMock, svc: FamiliesService) ->
 
 
 @pytest.mark.asyncio
-async def test_patch_profile_member_self_repo_none(repo: AsyncMock, svc: FamiliesService) -> None:
+async def test_patch_profile_admin_self_linked_repo_none(repo: AsyncMock, svc: FamiliesService) -> None:
     fid, uid, pid = uuid4(), uuid4(), uuid4()
     repo.get_user_membership_in_family = AsyncMock(
-        return_value=_mem(fid=fid, role=FamilyRole.MEMBER),
+        return_value=_mem(fid=fid, role=FamilyRole.ADMIN),
     )
     repo.profile_in_family = AsyncMock(return_value=True)
     repo.get_profile = AsyncMock(return_value=_profile(pid=pid, linked=uid))

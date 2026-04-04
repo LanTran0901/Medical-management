@@ -249,6 +249,8 @@ class FamiliesService:
             existing_profile = await self._repo.find_personal_profile_for_user(user.id)
             if existing_profile is not None and await self._repo.has_membership(fam.id, existing_profile.id):
                 raise ConflictError("User is already a member of this family")
+            if existing_profile is None and (not body.full_name or not str(body.full_name).strip()):
+                raise ValueError("full_name is required when you have no personal profile yet")
 
         pending = await self._repo.find_pending_invite(
             family_id=fam.id,
@@ -418,6 +420,10 @@ class FamiliesService:
             user_id,
             profile_scope=profile_scope,
         )
+
+    async def get_personal_profile_for_user(self, user_id: UUID) -> Profile | None:
+        """Profile cá nhân (linked_user_id = user), nếu đã tạo."""
+        return await self._repo.find_personal_profile_for_user(user_id)
 
     async def create_my_personal_profile(self, user_id: UUID, full_name: str) -> Profile:
         existing = await self._repo.find_personal_profile_for_user(user_id)

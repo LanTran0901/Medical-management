@@ -85,7 +85,7 @@ def test_case_e_member_get_own_health_ok(client) -> None:
 
     me = client.get("/users/me", headers=auth_headers(member_tok))
     assert me.status_code == 200
-    member_user_id = me.json()["id"]
+    member_user_id = me.json()["user"]["id"]
 
     plist = client.get(f"/families/{family_id}/profiles", headers=auth_headers(member_tok))
     assert plist.status_code == 200
