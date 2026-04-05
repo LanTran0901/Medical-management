@@ -50,14 +50,7 @@ class MedicalDictionaryRepository:
 		pattern = f"%{q}%"
 		stmt = (
 			sa.select(model)
-			.where(
-				sa.or_(
-					model.title.ilike(pattern),
-					model.summary.ilike(pattern),
-					model.search_document.ilike(pattern),
-					sa.cast(model.aliases, sa.Text).ilike(pattern),
-				)
-			)
+			.where(model.title.ilike(pattern))
 			.order_by(model.title.asc())
 		)
 		if limit is not None:
