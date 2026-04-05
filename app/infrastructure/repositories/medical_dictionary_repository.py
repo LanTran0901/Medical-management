@@ -36,7 +36,6 @@ class MedicalDictionaryRepository:
 			aliases=list(model.aliases or []),
 			summary=model.summary,
 			content=dict(model.content or {}),
-			source_file=model.source_file,
 		)
 
 	async def _search_one_type(

@@ -28,7 +28,6 @@ class _MedicalDictionaryBase:
         VECTOR(settings.rag_embedding_dimensions),
         nullable=True,
     )
-    source_file: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,

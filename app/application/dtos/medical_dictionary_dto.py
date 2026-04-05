@@ -40,10 +40,9 @@ class DictionaryDetailResponse(BaseModel):
 	aliases: list[str]
 	summary: str | None
 	content: dict[str, Any]
-	source_file: str
 
 	@classmethod
-	def from_entity(cls, entry: MedicalDictionaryEntry) -> "DictionaryDetailResponse":
+	from_entity(cls, entry: MedicalDictionaryEntry) -> "DictionaryDetailResponse":
 		return cls(
 			id=entry.id,
 			type=entry.entry_type.value,
@@ -51,5 +50,4 @@ class DictionaryDetailResponse(BaseModel):
 			aliases=entry.aliases,
 			summary=entry.summary,
 			content=entry.content,
-			source_file=entry.source_file,
 		)
