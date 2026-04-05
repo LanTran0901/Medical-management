@@ -119,6 +119,15 @@ class FamilyRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def list_linked_profiles_for_user(
+        self,
+        user_id: UUID,
+        *,
+        profile_scope: str = "all",
+    ) -> list[Profile]:
+        raise NotImplementedError
+
+    @abstractmethod
     async def create_personal_profile(self, *, user_id: UUID, full_name: str) -> Profile:
         raise NotImplementedError
 
@@ -203,6 +212,10 @@ class FamilyRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def claim_profile_to_user(self, profile_id: UUID, user_id: UUID) -> Profile | None:
+        raise NotImplementedError
+
+    @abstractmethod
     async def soft_delete_profile(self, profile_id: UUID) -> bool:
         raise NotImplementedError
 
@@ -260,6 +273,10 @@ class FamilyRepositoryPort(ABC):
 
     @abstractmethod
     async def list_family_invites(self, family_id: UUID) -> list[FamilyInvite]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_family_ids_for_profile(self, profile_id: UUID) -> list[UUID]:
         raise NotImplementedError
 
     @abstractmethod

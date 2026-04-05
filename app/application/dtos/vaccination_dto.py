@@ -39,6 +39,23 @@ class UserVaccinationResponse(BaseModel):
     doses_administered_count: int = 0
 
 
+class UserVaccinationWithDosesResponse(BaseModel):
+    """Subscription + tất cả mũi tiêm (dùng cho bundle /users/me, tab sức khỏe)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    profile_id: UUID
+    recommendation_id: UUID
+    recommendation_name: str
+    recommendation_total_doses: int
+    user_id: UUID | None
+    status: str | None
+    created_at: datetime
+    doses_administered_count: int = 0
+    doses: list[VaccinationDoseResponse] = Field(default_factory=list)
+
+
 class CreateVaccinationDoseRequest(BaseModel):
     dose_index: int = Field(..., ge=1)
     administered_at: date | None = None

@@ -1,14 +1,20 @@
-# Chạy pytest trong container với PostgreSQL (không cần MongoDB).
+# Chạy pytest trong container với PostgreSQL (có extension `vector` cho migration RAG / pgvector).
 #
-#   docker compose -f docker-compose.test.yml run --rm --build test
+#   docker compose -f docker-compose.test.yml build --no-cache test
+#   docker compose -f docker-compose.test.yml run --rm test
+#
+# Dọn DB test (volume):
 #   docker compose -f docker-compose.test.yml down -v --remove-orphans
 #
 # Chỉ unit test (nhanh, không cần DB):
-#   docker compose -f docker-compose.test.yml run --rm --build test \
+#   docker compose -f docker-compose.test.yml run --rm test \
 #     sh -c "pytest tests/test_family_permission.py -v --no-cov"
+#
+# Xem thêm: tests/README.md
 
 services:
   postgres:
+    # Cần cho `CREATE EXTENSION vector` trong Alembic (medical dictionary RAG).
     image: pgvector/pgvector:pg16
     container_name: medical-postgres-test
     environment:
@@ -46,9 +52,9 @@ services:
     volumes:
       - .:/app
     entrypoint: []
+    # Một lệnh: migrate + toàn bộ pytest (xem scripts/run_all_tests.py)
     command: >
-      sh -c "cd /app/app && alembic --config alembic.ini upgrade head &&
-             cd /app && pytest tests/ -v --tb=short --no-cov"
+      sh -c "cd /app && python scripts/run_all_tests.py"
     networks:
       - medical-test-net
 

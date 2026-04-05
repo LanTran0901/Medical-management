@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.dtos.user_dto import (
     PatchUserMeRequest,
     UpdateUserRequest,
+    UserMeHealthProfileResponse,
+    UserMeProfileBundleResponse,
+    UserMeResponse,
     UserResponse,
 )
 from app.application.dtos.family_dto import CreatePersonalProfileRequest, ProfileResponse
@@ -22,8 +25,15 @@ from app.application.usecases.user_usecases import (
 )
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
-from app.api.dependencies import get_current_user, get_families_service
+from app.api.dependencies import (
+    get_current_user,
+    get_families_service,
+    get_medical_records_service,
+    get_vaccination_service,
+)
 from app.application.usecases.family_usecases import FamiliesService
+from app.application.usecases.medical_records_usecases import MedicalRecordsService
+from app.application.usecases.vaccination_usecases import VaccinationService
 from app.domain.entities.user import User
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -83,20 +93,58 @@ async def create_my_personal_profile(
 
 @router.get(
     "/me",
-    response_model=UserResponse,
-    summary="Get current user",
-    description="Return authenticated user's profile",
+    response_model=UserMeResponse,
+    summary="Get current user bundle (cache Home / Health)",
+    description=(
+        "Trả `user`, `profile` (personal profile nếu có), và `health_profile`: "
+        "chi tiết sức khỏe + `medical_records` + `vaccinations` (kèm `doses`). "
+        "Khi chưa có personal profile: `profile` và `health_profile` là null."
+    ),
 )
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user),
     repository: UserRepositoryPG = Depends(get_user_repository),
-) -> UserResponse:
-    """Return the authenticated user; same payload as GET /users/{user_id} for self."""
+    families: FamiliesService = Depends(get_families_service),
+    medical: MedicalRecordsService = Depends(get_medical_records_service),
+    vaccination: VaccinationService = Depends(get_vaccination_service),
+) -> UserMeResponse:
     try:
         user = await GetUserUseCase(repository).execute(current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return UserResponse.from_entity(user)
+    user_resp = UserResponse.from_entity(user)
+    profile_entities = await families.list_my_linked_profiles(current_user.id, profile_scope="all")
+    if not profile_entities:
+        return UserMeResponse(user=user_resp, profiles=[], profile=None, health_profile=None)
+
+    bundles: list[UserMeProfileBundleResponse] = []
+    for profile_ent in profile_entities:
+        profile_resp = ProfileResponse.from_entity(profile_ent)
+        records = await medical.list_records(profile_ent.id, current_user.id)
+        vaccs = await vaccination.list_profile_vaccinations_with_doses(profile_ent.id, current_user.id)
+        health_ent = await families.get_health_by_profile_id(profile_ent.id, current_user.id)
+        family_ids = await families.list_family_ids_for_profile(profile_ent.id)
+        health_bundle = UserMeHealthProfileResponse.from_parts(
+            profile_id=profile_ent.id,
+            health=health_ent,
+            medical_records=records,
+            vaccinations=vaccs,
+        )
+        bundles.append(
+            UserMeProfileBundleResponse(
+                profile=profile_resp,
+                health_profile=health_bundle,
+                family_ids=family_ids,
+                family_count=len(family_ids),
+            )
+        )
+
+    return UserMeResponse(
+        user=user_resp,
+        profiles=bundles,
+        profile=bundles[0].profile,
+        health_profile=bundles[0].health_profile,
+    )
 
 
 @router.patch("/me", response_model=UserResponse, summary="Update current user (e.g. phone_number)")

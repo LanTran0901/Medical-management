@@ -14,7 +14,10 @@ RUN pip install --no-cache-dir pipenv
 
 COPY Pipfile Pipfile.lock ./
 
-RUN pipenv install --system --deploy --ignore-pipfile
+# Cài dependencies từ lock. Thêm pin pgvector: Alembic import model có `from pgvector.sqlalchemy import VECTOR`;
+# nếu thiếu wheel (một số môi trường build) thì migration sẽ lỗi ModuleNotFoundError.
+RUN pipenv install --system --deploy --ignore-pipfile \
+    && pip install --no-cache-dir "pgvector==0.4.2"
 
 RUN if [ "$INSTALL_TEST_DEPS" = "1" ]; then \
       pip install --no-cache-dir pytest pytest-asyncio pytest-cov; \

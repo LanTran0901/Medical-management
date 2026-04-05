@@ -52,6 +52,10 @@ class CreateFamilyRequest(BaseModel):
 
 class JoinFamilyRequest(BaseModel):
     invite_code: str | None = Field(None, min_length=1, max_length=64)
+    profile_id: UUID | None = Field(
+        None,
+        description="Optional linked profile to use for the membership when user has multiple profiles",
+    )
     full_name: str | None = Field(
         None,
         max_length=255,
@@ -122,6 +126,39 @@ class InvitePreviewResponse(BaseModel):
     invite_code: str
     valid: bool = True
     expires_at: datetime
+
+
+class LinkableProfileResponse(BaseModel):
+    profile_id: UUID
+    health_profile_id: UUID | None
+    full_name: str
+    dob: date | None
+    gender: str | None
+    avatar_url: str | None
+    status: str | None
+    linked_user_id: UUID | None
+
+
+class ListLinkableProfilesResponse(BaseModel):
+    family_id: UUID
+    family_name: str
+    invite_code: str
+    profiles: list[LinkableProfileResponse]
+
+
+class LinkInviteProfileRequest(BaseModel):
+    invite_code: str = Field(..., min_length=1, max_length=64)
+    profile_id: UUID
+
+
+class LinkInviteProfileResponse(BaseModel):
+    success: bool
+    family_id: UUID
+    profile_id: UUID
+    health_profile_id: UUID | None
+    linked_user_id: UUID
+    membership_created: bool
+    post_login_flow_completed: bool
 
 
 class PatchFamilyRequest(BaseModel):

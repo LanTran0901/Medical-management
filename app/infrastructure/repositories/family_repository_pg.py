@@ -23,7 +23,7 @@ from app.domain.entities.family import (
     PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
-from app.domain.entities.profile import Profile
+from app.domain.entities.profile import Profile, ProfileStatus
 from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
     FamilyMembershipModel,
@@ -68,6 +68,14 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         return or_(
             ProfileModel.owner_user_id == user_id,
             ProfileModel.linked_user_id == user_id,
+        )
+
+    @staticmethod
+    def _profile_order_columns():
+        return (
+            ProfileModel.updated_at.desc(),
+            ProfileModel.created_at.desc(),
+            ProfileModel.id.desc(),
         )
 
     @staticmethod
@@ -416,9 +424,14 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         return self._to_family(fam), self._to_profile(prof), self._to_membership(mem)
 
     async def find_personal_profile_for_user(self, user_id: UUID) -> Profile | None:
-        stmt = select(ProfileModel).where(
-            ProfileModel.linked_user_id == user_id,
-            ProfileModel.deleted_at.is_(None),
+        stmt = (
+            select(ProfileModel)
+            .where(
+                ProfileModel.linked_user_id == user_id,
+                ProfileModel.deleted_at.is_(None),
+            )
+            .order_by(*self._profile_order_columns())
+            .limit(1)
         )
         r = await self.session.execute(stmt)
         m = r.scalar_one_or_none()
@@ -442,7 +455,7 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
             stmt = stmt.where(mem_exists)
         elif profile_scope != "all":
             raise ValueError(f"Invalid profile_scope: {profile_scope}")
-        stmt = stmt.order_by(ProfileModel.created_at)
+        stmt = stmt.order_by(*self._profile_order_columns())
         r = await self.session.execute(stmt)
         return [self._to_profile(x) for x in r.scalars().all()]
 
@@ -638,6 +651,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
             weight_kg=weight_kg,
             address=address,
             avatar_url=avatar_url,
+            status=(
+                ProfileStatus.ACTIVE.value
+                if linked_user_id is not None
+                else ProfileStatus.SHADOW.value
+            ),
         )
         self.session.add(prof)
         await self.session.flush()
@@ -699,6 +717,23 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         if m.linked_user_id is not None:
             return None
         m.linked_user_id = user_id
+        if m.status in (ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value):
+            m.status = ProfileStatus.ACTIVE.value
+        m.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        await self.session.refresh(m)
+        return self._to_profile(m)
+
+    async def claim_profile_to_user(self, profile_id: UUID, user_id: UUID) -> Profile | None:
+        m = await self.session.get(ProfileModel, profile_id)
+        if m is None or m.deleted_at is not None:
+            return None
+        if m.linked_user_id is not None:
+            return None
+        m.owner_user_id = user_id
+        m.linked_user_id = user_id
+        if m.status in (ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value):
+            m.status = ProfileStatus.ACTIVE.value
         m.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(m)

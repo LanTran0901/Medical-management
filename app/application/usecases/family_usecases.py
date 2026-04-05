@@ -14,12 +14,13 @@ from app.application.dtos.family_dto import (
     FamilyInviteListRequest,
     InviteByPhoneRequest,
     JoinFamilyRequest,
+    LinkInviteProfileRequest,
     PatchFamilyRequest,
     PatchHealthDetailRequest,
     PatchMembershipRoleRequest,
     PatchProfileRequest,
 )
-from app.application.family_errors import ConflictError, ForbiddenError, NotFoundError
+from app.application.family_errors import ConflictError, ForbiddenError, GoneError, NotFoundError
 from app.application.ports.family_port import FamilyRepositoryPort
 from app.application.ports.user_port import UserRepositoryPort
 from app.application.usecases.access_control_usecases import AccessControlService
@@ -33,7 +34,7 @@ from app.domain.entities.family import (
     PublicInvitePreview,
 )
 from app.domain.entities.health_detail import HealthDetail
-from app.domain.entities.profile import Profile
+from app.domain.entities.profile import Profile, ProfileStatus
 from app.domain.services.family_permission import has_at_least
 
 
@@ -57,12 +58,35 @@ class FamiliesService:
     async def _membership_or_404(self, family_id: UUID, user_id: UUID) -> FamilyMembership:
         return await self._access.require_family_member(family_id, user_id)
 
-    async def _ensure_personal_profile(self, user_id: UUID, full_name: str | None) -> Profile:
-        prof = await self._repo.find_personal_profile_for_user(user_id)
-        if prof is not None:
-            return prof
+    @staticmethod
+    def _sort_profiles_for_default(profiles: list[Profile]) -> list[Profile]:
+        return sorted(
+            profiles,
+            key=lambda profile: (profile.updated_at, profile.created_at, str(profile.id)),
+            reverse=True,
+        )
+
+    async def _resolve_join_profile(
+        self,
+        user_id: UUID,
+        *,
+        profile_id: UUID | None,
+        full_name: str | None,
+    ) -> Profile:
+        linked_profiles = self._sort_profiles_for_default(
+            await self._repo.list_linked_profiles_for_user(user_id, profile_scope="all")
+        )
+        if profile_id is not None:
+            selected = next((profile for profile in linked_profiles if profile.id == profile_id), None)
+            if selected is None:
+                raise ForbiddenError("profile_id does not belong to current user")
+            return selected
+        if len(linked_profiles) == 1:
+            return linked_profiles[0]
+        if len(linked_profiles) > 1:
+            raise ConflictError("Multiple linked profiles found; profile_id is required")
         if not full_name or not full_name.strip():
-            raise ValueError("full_name is required when you have no personal profile yet")
+            raise ValueError("full_name is required when you have no linked profile yet")
         return await self._repo.create_personal_profile(
             user_id=user_id,
             full_name=full_name.strip(),
@@ -119,7 +143,11 @@ class FamiliesService:
             snap = await self._repo.preview_public_invite(code)
             if snap is None:
                 raise NotFoundError("Invalid or expired invite code")
-            prof = await self._ensure_personal_profile(user_id, body.full_name)
+            prof = await self._resolve_join_profile(
+                user_id,
+                profile_id=body.profile_id,
+                full_name=body.full_name,
+            )
             if await self._repo.has_membership(snap.family_id, prof.id):
                 raise ConflictError("Already a member of this family")
             fam = await self._repo.consume_pending_public_invite(code, user_id)
@@ -181,7 +209,11 @@ class FamiliesService:
         if invite.role == FamilyRole.OWNER:
             raise ForbiddenError("Ownership transfer must be done via membership role transfer")
 
-        profile = await self._ensure_personal_profile(user_id, body.full_name)
+        profile = await self._resolve_join_profile(
+            user_id,
+            profile_id=body.profile_id,
+            full_name=body.full_name,
+        )
         if await self._repo.has_membership(invite.family_id, profile.id):
             raise ConflictError("Already a member of this family")
         try:
@@ -246,8 +278,10 @@ class FamiliesService:
         target_user_id = user.id if user is not None else body.user_id
         if user is not None:
             existing_profile = await self._repo.find_personal_profile_for_user(user.id)
-            if existing_profile is not None and await self._repo.has_membership(fam.id, existing_profile.id):
+            if await self._repo.get_user_membership_in_family(fam.id, user.id) is not None:
                 raise ConflictError("User is already a member of this family")
+            if existing_profile is None and (not body.full_name or not str(body.full_name).strip()):
+                raise ValueError("full_name is required when you have no personal profile yet")
 
         pending = await self._repo.find_pending_invite(
             family_id=fam.id,
@@ -408,38 +442,128 @@ class FamiliesService:
         await self._access.require_family_member(family_id, user_id)
         return await self._repo.list_profiles_in_family(family_id)
 
-    async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
-        await self._access.require_family_member(family_id, user_id)
-        m = await self._membership_or_404(family_id, user_id)
-        rows = await self._repo.list_profiles_in_family(family_id)
-        if not has_at_least(m.role, FamilyRole.ADMIN):
-            rows = [p for p in rows if p.linked_user_id == user_id]
-        return rows
-
     async def list_my_linked_profiles(
         self,
         user_id: UUID,
         profile_scope: Literal["all", "without_family", "with_family"] = "all",
     ) -> list[Profile]:
-        return await self._repo.list_linked_profiles_for_user(
-            user_id,
-            profile_scope=profile_scope,
+        return self._sort_profiles_for_default(
+            await self._repo.list_linked_profiles_for_user(
+                user_id,
+                profile_scope=profile_scope,
+            )
         )
 
+    async def get_personal_profile_for_user(self, user_id: UUID) -> Profile | None:
+        """Profile cá nhân (linked_user_id = user), nếu đã tạo."""
+        profiles = await self.list_my_linked_profiles(user_id, profile_scope="all")
+        return profiles[0] if profiles else None
+
+    async def list_family_ids_for_profile(self, profile_id: UUID) -> list[UUID]:
+        return await self._repo.list_family_ids_for_profile(profile_id)
+
     async def create_my_personal_profile(self, user_id: UUID, full_name: str) -> Profile:
-        existing = await self._repo.find_personal_profile_for_user(user_id)
-        if existing is not None:
-            raise ConflictError("Personal profile already exists")
-        try:
-            return await self._repo.create_personal_profile(user_id=user_id, full_name=full_name)
-        except IntegrityError as e:
-            raise ConflictError("Personal profile already exists") from e
+        return await self._repo.create_personal_profile(user_id=user_id, full_name=full_name)
 
     async def preview_invite(self, invite_code: str) -> PublicInvitePreview:
         prev = await self._repo.preview_public_invite(invite_code)
         if prev is None:
             raise NotFoundError("Invalid or expired invite code")
         return prev
+
+    async def list_linkable_profiles_by_invite(self, user_id: UUID, invite_code: str) -> dict:
+        code = invite_code.strip()
+        prev = await self._repo.preview_public_invite(code)
+        if prev is None:
+            raise NotFoundError("Invite code not found")
+        if not prev.valid:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
+            raise ConflictError("Already a member of this family")
+
+        profiles = await self._repo.list_profiles_in_family(prev.family_id)
+        candidate_profiles = [
+            p
+            for p in profiles
+            if p.linked_user_id is None
+            and p.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
+        ]
+        health_map = await self._repo.list_health_for_profiles([p.id for p in candidate_profiles])
+
+        return {
+            "family_id": prev.family_id,
+            "family_name": prev.family_name,
+            "invite_code": prev.invite_code,
+            "profiles": [
+                {
+                    "profile_id": p.id,
+                    "health_profile_id": health_map.get(p.id).profile_id if health_map.get(p.id) else None,
+                    "full_name": p.full_name,
+                    "dob": p.dob,
+                    "gender": p.gender,
+                    "avatar_url": p.avatar_url,
+                    "status": p.status,
+                    "linked_user_id": p.linked_user_id,
+                }
+                for p in candidate_profiles
+            ],
+        }
+
+    async def link_profile_by_invite(self, user_id: UUID, body: LinkInviteProfileRequest) -> dict:
+        code = body.invite_code.strip()
+        prev = await self._repo.preview_public_invite(code)
+        if prev is None:
+            raise NotFoundError("Invite code not found")
+        if not prev.valid:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
+            raise ConflictError("Already a member of this family")
+
+        if not await self._repo.profile_in_family(body.profile_id, prev.family_id):
+            raise ConflictError("Profile does not belong to invite family")
+
+        profile = await self._repo.get_profile(body.profile_id)
+        if profile is None:
+            raise NotFoundError("Profile not found")
+        if profile.linked_user_id is not None:
+            raise ConflictError("Profile has already been linked")
+        if profile.status not in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}:
+            raise ConflictError("Profile is not claimable")
+
+        fam = await self._repo.consume_pending_public_invite(code, user_id)
+        if fam is None:
+            raise GoneError("Invite code has expired or is no longer active")
+
+        linked = await self._repo.claim_profile_to_user(body.profile_id, user_id)
+        if linked is None:
+            raise ConflictError("Profile has already been linked")
+
+        membership_created = False
+        if not await self._repo.has_membership(fam.id, body.profile_id):
+            try:
+                await self._repo.create_membership(
+                    family_id=fam.id,
+                    profile_id=body.profile_id,
+                    role=FamilyRole.MEMBER,
+                    relation_role=None,
+                    added_by=user_id,
+                )
+                membership_created = True
+            except IntegrityError:
+                membership_created = False
+
+        health = await self._repo.get_health(body.profile_id)
+        return {
+            "success": True,
+            "family_id": fam.id,
+            "profile_id": body.profile_id,
+            "health_profile_id": health.profile_id if health else None,
+            "linked_user_id": user_id,
+            "membership_created": membership_created,
+            "post_login_flow_completed": True,
+        }
 
     async def get_profile(self, family_id: UUID, profile_id: UUID, user_id: UUID) -> Profile:
         m = await self._membership_or_404(family_id, user_id)
@@ -515,7 +639,7 @@ class FamiliesService:
         try:
             p = await self._repo.link_profile_to_user(profile_id, target_user_id)
         except IntegrityError as e:
-            raise ConflictError("User already linked to another profile") from e
+            raise ConflictError("Profile already linked or not found") from e
         if p is None:
             raise ConflictError("Profile already linked or not found")
         return p
@@ -607,7 +731,7 @@ class FamiliesService:
         try:
             p = await self._repo.link_profile_to_user(profile_id, target_user_id)
         except IntegrityError as e:
-            raise ConflictError("User already linked to another profile") from e
+            raise ConflictError("Profile already linked or not found") from e
         if p is None:
             raise ConflictError("Profile already linked or not found")
         return p
