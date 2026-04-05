@@ -108,6 +108,52 @@ def test_link_profile_by_invite_links_selected_profile_and_consumes_code(client)
     assert second.status_code == 410
 
 
+def test_link_profile_by_invite_allows_user_with_existing_linked_profile(client) -> None:
+    owner_suf = register_user(client)
+    claimant_suf = register_user(client)
+    owner_tok = login_access_token(client, owner_suf)
+    claimant_tok = login_access_token(client, claimant_suf)
+
+    existing = client.post(
+        "/users/me/personal-profile",
+        json={"full_name": "Existing Self"},
+        headers=auth_headers(claimant_tok),
+    )
+    assert existing.status_code == 201, existing.text
+    existing_profile_id = existing.json()["id"]
+
+    cr = client.post(
+        "/families",
+        json={"family_name": "ClaimWithExisting", "full_name": "Owner"},
+        headers=auth_headers(owner_tok),
+    )
+    assert cr.status_code == 201, cr.text
+    family = cr.json()
+    family_id = family["id"]
+    code = family["invite_code"]
+
+    created = client.post(
+        f"/families/{family_id}/profiles",
+        json={"full_name": "Shadow Person"},
+        headers=auth_headers(owner_tok),
+    )
+    assert created.status_code == 201, created.text
+    shadow_profile_id = created.json()["profile"]["id"]
+
+    link = client.post(
+        "/families/invite/link-profile",
+        json={"invite_code": code, "profile_id": shadow_profile_id},
+        headers=auth_headers(claimant_tok),
+    )
+    assert link.status_code == 200, link.text
+
+    profiles = client.get("/users/me/profiles", headers=auth_headers(claimant_tok))
+    assert profiles.status_code == 200, profiles.text
+    ids = [row["id"] for row in profiles.json()]
+    assert existing_profile_id in ids
+    assert shadow_profile_id in ids
+
+
 def test_linkable_profiles_returns_410_for_expired_invite(client, monkeypatch) -> None:
     from app.core.config import settings
 

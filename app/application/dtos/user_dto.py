@@ -95,9 +95,19 @@ class UserMeHealthProfileResponse(BaseModel):
         )
 
 
+class UserMeProfileBundleResponse(BaseModel):
+    """One linked profile + health aggregate + family membership summary."""
+
+    profile: ProfileResponse
+    health_profile: UserMeHealthProfileResponse
+    family_ids: list[UUID] = Field(default_factory=list)
+    family_count: int = 0
+
+
 class UserMeResponse(BaseModel):
     """GET /users/me — bundle cho cache client."""
 
     user: UserResponse
+    profiles: list[UserMeProfileBundleResponse] = Field(default_factory=list)
     profile: ProfileResponse | None = None
     health_profile: UserMeHealthProfileResponse | None = None

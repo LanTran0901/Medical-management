@@ -52,6 +52,10 @@ class CreateFamilyRequest(BaseModel):
 
 class JoinFamilyRequest(BaseModel):
     invite_code: str | None = Field(None, min_length=1, max_length=64)
+    profile_id: UUID | None = Field(
+        None,
+        description="Optional linked profile to use for the membership when user has multiple profiles",
+    )
     full_name: str | None = Field(
         None,
         max_length=255,

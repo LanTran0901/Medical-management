@@ -59,7 +59,7 @@ class ProfileModel(Base):
         UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
-        unique=True,
+        index=True,
     )
     full_name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     dob: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
