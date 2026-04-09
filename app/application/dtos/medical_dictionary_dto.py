@@ -42,7 +42,7 @@ class DictionaryDetailResponse(BaseModel):
 	content: dict[str, Any]
 
 	@classmethod
-	from_entity(cls, entry: MedicalDictionaryEntry) -> "DictionaryDetailResponse":
+	def from_entity(cls, entry: MedicalDictionaryEntry) -> "DictionaryDetailResponse":
 		return cls(
 			id=entry.id,
 			type=entry.entry_type.value,

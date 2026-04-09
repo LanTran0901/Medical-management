@@ -20,9 +20,6 @@ services:
     image: medical-management-api:latest
     container_name: medical_api
     restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     ports:
       - "7543:7543"
     env_file:
