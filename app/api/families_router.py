@@ -28,7 +28,7 @@ from app.application.dtos.family_dto import (
     InviteByPhoneResponse,
     LinkInviteProfileRequest,
     LinkInviteProfileResponse,
-    LinkableProfileResponse,
+    InviteLinkableMemberResponse,
     ListLinkableProfilesResponse,
     InvitePreviewResponse,
     JoinFamilyRequest,
@@ -178,7 +178,12 @@ async def preview_invite(
 @router.get(
     "/invite/linkable-profiles",
     response_model=ListLinkableProfilesResponse,
-    summary="List claimable profiles by invite code",
+    summary="Get family and selectable members by invite code",
+    description=(
+        "Resolve a family by invite code and return family info plus members whose "
+        "profiles are not linked to any account yet. `members[].id` is the `profile_id` "
+        "to send to POST /families/invite/link-profile."
+    ),
 )
 async def list_linkable_profiles(
     invite_code: str = Query(..., min_length=1, max_length=64),
@@ -188,10 +193,13 @@ async def list_linkable_profiles(
     try:
         payload = await svc.list_linkable_profiles_by_invite(user.id, invite_code)
         return ListLinkableProfilesResponse(
-            family_id=payload["family_id"],
-            family_name=payload["family_name"],
+            id=payload["id"],
+            name=payload["name"],
+            address=payload["address"],
+            avatar_url=payload["avatar_url"],
             invite_code=payload["invite_code"],
-            profiles=[LinkableProfileResponse(**row) for row in payload["profiles"]],
+            created_at=payload["created_at"],
+            members=[InviteLinkableMemberResponse(**row) for row in payload["members"]],
         )
     except Exception as e:
         _handle_family_error(e)
@@ -202,6 +210,11 @@ async def list_linkable_profiles(
     "/invite/link-profile",
     response_model=LinkInviteProfileResponse,
     summary="Link current user to selected family profile via invite",
+    description=(
+        "Claim the selected unlinked family profile for the current user. "
+        "Send the selected member id from GET /families/invite/linkable-profiles "
+        "as `profile_id`."
+    ),
 )
 async def link_profile_by_invite(
     body: LinkInviteProfileRequest,

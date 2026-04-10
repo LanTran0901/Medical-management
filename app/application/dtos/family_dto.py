@@ -128,22 +128,22 @@ class InvitePreviewResponse(BaseModel):
     expires_at: datetime
 
 
-class LinkableProfileResponse(BaseModel):
-    profile_id: UUID
-    health_profile_id: UUID | None
+class InviteLinkableMemberResponse(BaseModel):
+    id: UUID
     full_name: str
-    dob: date | None
-    gender: str | None
-    avatar_url: str | None
-    status: str | None
-    linked_user_id: UUID | None
+    role: FamilyRole
+    relation_role: str | None = None
+    avatar_url: str | None = None
 
 
 class ListLinkableProfilesResponse(BaseModel):
-    family_id: UUID
-    family_name: str
+    id: UUID
+    name: str
+    address: str | None = None
+    avatar_url: str | None = None
     invite_code: str
-    profiles: list[LinkableProfileResponse]
+    created_at: datetime
+    members: list[InviteLinkableMemberResponse]
 
 
 class LinkInviteProfileRequest(BaseModel):

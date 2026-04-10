@@ -482,31 +482,34 @@ class FamiliesService:
         if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
             raise ConflictError("Already a member of this family")
 
-        profiles = await self._repo.list_profiles_in_family(prev.family_id)
-        candidate_profiles = [
-            p
-            for p in profiles
-            if p.linked_user_id is None
-            and p.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
+        family = await self._repo.get_family(prev.family_id)
+        if family is None:
+            raise NotFoundError("Family not found")
+
+        rows = await self._repo.list_members_rows(prev.family_id)
+        candidate_members = [
+            (membership, profile)
+            for membership, profile in rows
+            if profile.linked_user_id is None
+            and profile.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
         ]
-        health_map = await self._repo.list_health_for_profiles([p.id for p in candidate_profiles])
 
         return {
-            "family_id": prev.family_id,
-            "family_name": prev.family_name,
-            "invite_code": prev.invite_code,
-            "profiles": [
+            "id": family.id,
+            "name": family.family_name,
+            "address": family.address,
+            "avatar_url": family.avatar_url,
+            "invite_code": family.invite_code,
+            "created_at": family.created_at,
+            "members": [
                 {
-                    "profile_id": p.id,
-                    "health_profile_id": health_map.get(p.id).profile_id if health_map.get(p.id) else None,
-                    "full_name": p.full_name,
-                    "dob": p.dob,
-                    "gender": p.gender,
-                    "avatar_url": p.avatar_url,
-                    "status": p.status,
-                    "linked_user_id": p.linked_user_id,
+                    "id": profile.id,
+                    "full_name": profile.full_name,
+                    "role": membership.role,
+                    "relation_role": membership.relation_role,
+                    "avatar_url": profile.avatar_url,
                 }
-                for p in candidate_profiles
+                for membership, profile in candidate_members
             ],
         }
 

@@ -31,7 +31,7 @@ def test_list_linkable_profiles_by_invite_returns_unlinked_profiles(client) -> N
 
     p1 = client.post(
         f"/families/{family_id}/profiles",
-        json={"full_name": "Nguyen Van A"},
+        json={"full_name": "Nguyen Van A", "role": "ADMIN", "relation_role": "Cha"},
         headers=auth_headers(owner_tok),
     )
     assert p1.status_code == 201, p1.text
@@ -39,7 +39,7 @@ def test_list_linkable_profiles_by_invite_returns_unlinked_profiles(client) -> N
 
     p2 = client.post(
         f"/families/{family_id}/profiles",
-        json={"full_name": "Nguyen Thi B"},
+        json={"full_name": "Nguyen Thi B", "role": "MEMBER", "relation_role": "Con"},
         headers=auth_headers(owner_tok),
     )
     assert p2.status_code == 201, p2.text
@@ -51,13 +51,23 @@ def test_list_linkable_profiles_by_invite_returns_unlinked_profiles(client) -> N
     )
     assert resp.status_code == 200, resp.text
     payload = resp.json()
-    assert payload["family_id"] == family_id
+    assert payload["id"] == family_id
+    assert payload["name"] == "LinkableFam"
     assert payload["invite_code"] == code
+    assert "address" in payload
+    assert "avatar_url" in payload
+    assert "created_at" in payload
 
-    ids = {row["profile_id"] for row in payload["profiles"]}
+    ids = {row["id"] for row in payload["members"]}
     assert p1_id in ids
     assert p2_id in ids
-    assert all(row["linked_user_id"] is None for row in payload["profiles"])
+    row_by_id = {row["id"]: row for row in payload["members"]}
+    assert row_by_id[p1_id]["full_name"] == "Nguyen Van A"
+    assert row_by_id[p1_id]["role"] == "ADMIN"
+    assert row_by_id[p1_id]["relation_role"] == "Cha"
+    assert row_by_id[p2_id]["full_name"] == "Nguyen Thi B"
+    assert row_by_id[p2_id]["role"] == "MEMBER"
+    assert row_by_id[p2_id]["relation_role"] == "Con"
 
 
 def test_link_profile_by_invite_links_selected_profile_and_consumes_code(client) -> None:
