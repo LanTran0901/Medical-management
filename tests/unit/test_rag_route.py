@@ -1,20 +1,21 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_rag_service
+from app.api.dependencies import get_current_user, get_rag_service
 from app.routes.rag import router
 
 
 def test_rag_chat_returns_sources(monkeypatch) -> None:
-    async def fake_run_rag(*, question: str, session_id: str, rag_service):
+    async def fake_run_rag(*, question: str, user_id: str, rag_service):
         assert question == "HPV la gi?"
-        assert session_id == "sess-1"
+        assert user_id == "00000000-0000-0000-0000-000000000001"
         assert rag_service == "fake-service"
         return {
             "answer": "Thong tin duoc tra ve tu kho noi bo.",
-            "session_id": session_id,
             "used_context_count": 2,
             "sources": [
                 {
@@ -32,11 +33,16 @@ def test_rag_chat_returns_sources(monkeypatch) -> None:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_rag_service] = lambda: "fake-service"
+    app.dependency_overrides[get_current_user] = lambda: type(
+        "FakeUser",
+        (),
+        {"id": uuid.UUID("00000000-0000-0000-0000-000000000001")},
+    )()
 
     with TestClient(app) as client:
         response = client.post(
             "/rag/chat",
-            json={"question": "HPV la gi?", "session_id": "sess-1"},
+            json={"question": "HPV la gi?"},
         )
 
     assert response.status_code == 200
