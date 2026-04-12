@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.local
-    image: medical-management-api:latest
-    container_name: medical-migrate
+    image: medical-management-api:local
+    container_name: medical-migrate-local
     env_file:
       - .env
     working_dir: /app/app
@@ -16,13 +16,15 @@ services:
       - medical-net
 
   api:
-    image: medical-management-api:latest
-    container_name: medical_api
+    image: medical-management-api:local
+    container_name: medical_api_local
     restart: unless-stopped
     ports:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
     networks:
       - medical-net
     depends_on:
