@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from uuid import UUID
+from datetime import datetime, timezone
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.notification_dto import (
     SendNotificationRequest,
     SendNotificationToDeviceRequest,
     NotificationResponse,
+    NotificationsListResponse,
+    NotificationListItem,
 )
 from app.application.ports.auth_port import AuthRepositoryPort
 from app.application.ports.notification_port import NotificationServicePort
@@ -96,3 +101,67 @@ class SendNotificationToDeviceUseCase:
                 message=f"Failed to send: {str(e)}",
                 failed_tokens=[request.fcm_token],
             )
+
+
+class ListNotificationsUseCase:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def execute(self, user_id: UUID) -> NotificationsListResponse:
+        query = text(
+            """
+            SELECT
+                s.id AS schedule_id,
+                s.category::text AS category,
+                s.status::text AS status,
+                s.title AS title,
+                s.remind_time AS remind_time,
+                s.dosage_per_time AS dosage_per_time,
+                mi.medicine_name AS medicine_name,
+                p.id AS profile_id,
+                p.full_name AS profile_name,
+                f.family_name AS family_name
+            FROM schedules s
+            JOIN profiles p ON p.id = s.profile_id
+            LEFT JOIN medicine_inventory mi ON mi.id = s.medicine_id
+            LEFT JOIN families f ON f.id = mi.family_id
+            WHERE s.category = 'MEDICINE'
+              AND (p.owner_user_id = :user_id OR p.linked_user_id = :user_id)
+            ORDER BY s.remind_time NULLS LAST
+            """
+        )
+
+        result = await self.session.execute(query, {"user_id": user_id})
+        rows = result.mappings().all()
+
+        today = datetime.now(timezone.utc).date()
+        items: list[NotificationListItem] = []
+        for row in rows:
+            remind_time = row.get("remind_time")
+            scheduled_at = None
+            if remind_time is not None:
+                scheduled_at = datetime.combine(
+                    today, remind_time, tzinfo=timezone.utc
+                )
+            remind_time_str = (
+                remind_time.strftime("%H:%M") if remind_time is not None else None
+            )
+            dosage_value = row.get("dosage_per_time")
+            items.append(
+                NotificationListItem(
+                    id=row["schedule_id"],
+                    category=row.get("category") or "MEDICINE",
+                    status=row.get("status"),
+                    title=row.get("title") or "Nhac uong thuoc",
+                    body=row.get("medicine_name"),
+                    remind_time=remind_time_str,
+                    scheduled_at=scheduled_at,
+                    medicine_name=row.get("medicine_name"),
+                    dosage_per_time=str(dosage_value) if dosage_value is not None else None,
+                    profile_id=row["profile_id"],
+                    profile_name=row.get("profile_name"),
+                    family_name=row.get("family_name"),
+                )
+            )
+
+        return NotificationsListResponse(items=items)

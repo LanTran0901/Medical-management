@@ -1,16 +1,41 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+"""Push and in-app notifications.
+
+Manual E2E (scheduled MEDICINE FCM): run `alembic upgrade head`, ensure an ACTIVE
+`schedules` row with `remind_time` matching the current UTC minute, FCM tokens on
+`user_devices`, and `FIREBASE_CREDENTIALS_PATH` set. Either set
+`SCHEDULE_DISPATCH_ENABLED=true` or call `POST /notifications/dispatch/schedules`
+with header `X-Internal-Secret` matching `INTERNAL_DISPATCH_SECRET`. Tap the
+push or use `POST /notifications/me/schedules/{schedule_id}/compliance`.
+"""
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.notification_dto import (
     SendNotificationRequest,
     SendNotificationToDeviceRequest,
     NotificationResponse,
+    NotificationsListResponse,
+    ScheduleComplianceRequest,
+    ScheduleComplianceResponse,
+    ScheduleDispatchResponse,
 )
 from app.application.usecases.notification_usecases import (
     SendNotificationToUserUseCase,
     SendNotificationToDeviceUseCase,
+    ListNotificationsUseCase,
 )
-from app.infrastructure.config.database.postgres.connection import get_session
+from app.application.usecases.schedule_push_usecases import (
+    LogScheduleComplianceUseCase,
+    ProcessDueSchedulePushesUseCase,
+)
+from app.core.config import settings
+from app.infrastructure.config.database.postgres.connection import (
+    AsyncSessionLocal,
+    get_session,
+)
 from app.infrastructure.repositories.auth_repository_pg import AuthRepositoryPG
 from app.infrastructure.services.fcm_service import FCMService
 from app.api.dependencies import get_current_user
@@ -54,4 +79,48 @@ async def send_notification_to_device(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
-        ) from e
+    ) from e
+
+
+@router.get("/me", response_model=NotificationsListResponse)
+async def list_my_notifications(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> NotificationsListResponse:
+    use_case = ListNotificationsUseCase(session)
+    return await use_case.execute(current_user.id)
+
+
+@router.post(
+    "/me/schedules/{schedule_id}/compliance",
+    response_model=ScheduleComplianceResponse,
+)
+async def log_schedule_compliance(
+    schedule_id: UUID,
+    payload: ScheduleComplianceRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ScheduleComplianceResponse:
+    use_case = LogScheduleComplianceUseCase(session)
+    return await use_case.execute(current_user.id, schedule_id, payload)
+
+
+@router.post("/dispatch/schedules", response_model=ScheduleDispatchResponse)
+async def dispatch_schedule_pushes(
+    x_internal_secret: str | None = Header(None, alias="X-Internal-Secret"),
+) -> ScheduleDispatchResponse:
+    """Manual or cron trigger: send due MEDICINE schedule FCMs. Requires INTERNAL_DISPATCH_SECRET."""
+    if not settings.internal_dispatch_secret:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if not x_internal_secret or x_internal_secret != settings.internal_dispatch_secret:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    async with AsyncSessionLocal() as session:
+        try:
+            use_case = ProcessDueSchedulePushesUseCase(session, FCMService())
+            result = await use_case.execute()
+            await session.commit()
+            return result
+        except Exception:
+            await session.rollback()
+            raise

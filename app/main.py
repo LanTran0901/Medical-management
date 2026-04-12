@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -25,10 +27,43 @@ from app.infrastructure.config.database.mongodb.connection import (
 )
 from app.infrastructure.config.database.postgres.connection import engine
 
+logger = logging.getLogger(__name__)
+
 
 def _skip_mongo_lifespan() -> bool:
     """Set SKIP_MONGO_LIFESPAN=1 for integration tests that only need PostgreSQL."""
     return os.getenv("SKIP_MONGO_LIFESPAN", "").lower() in ("1", "true", "yes")
+
+
+async def _schedule_dispatch_loop() -> None:
+    """Background poll for due MEDICINE schedules and send FCM (optional)."""
+    from app.application.usecases.schedule_push_usecases import (
+        ProcessDueSchedulePushesUseCase,
+    )
+    from app.infrastructure.config.database.postgres.connection import AsyncSessionLocal
+    from app.infrastructure.services.fcm_service import FCMService
+
+    interval = settings.schedule_dispatch_interval_seconds
+    while True:
+        await asyncio.sleep(interval)
+        if not settings.schedule_dispatch_enabled:
+            continue
+        if not settings.firebase_credentials_path:
+            continue
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    uc = ProcessDueSchedulePushesUseCase(session, FCMService())
+                    result = await uc.execute()
+                    await session.commit()
+                    logger.info("Schedule dispatch: %s", result)
+                except Exception:
+                    await session.rollback()
+                    raise
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Schedule dispatch iteration failed")
 
 
 @asynccontextmanager
@@ -50,9 +85,19 @@ async def lifespan(_: FastAPI):
             cred = fb_credentials.Certificate(settings.firebase_credentials_path)
             firebase_admin.initialize_app(cred)
 
+    dispatch_task: asyncio.Task | None = None
+    if settings.schedule_dispatch_enabled and settings.firebase_credentials_path:
+        dispatch_task = asyncio.create_task(_schedule_dispatch_loop())
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
+    if dispatch_task is not None:
+        dispatch_task.cancel()
+        try:
+            await dispatch_task
+        except asyncio.CancelledError:
+            pass
     if not _skip_mongo_lifespan():
         await close_mongo_connection()
     await engine.dispose()

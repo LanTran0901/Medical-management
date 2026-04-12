@@ -17,17 +17,53 @@ class FCMService(NotificationServicePort):
 
         self._messaging = messaging
 
+    def _build_message(
+        self,
+        token: str,
+        title: str,
+        body: str,
+        data: Optional[dict[str, str]],
+        *,
+        android_channel_id: Optional[str],
+        android_sound: Optional[str],
+    ):
+        msg = self._messaging
+        notification = msg.Notification(title=title, body=body)
+        kwargs: dict = {
+            "notification": notification,
+            "data": data,
+            "token": token,
+        }
+        if android_channel_id:
+            sound = android_sound if android_sound is not None else "default"
+            kwargs["android"] = msg.AndroidConfig(
+                priority="high",
+                notification=msg.AndroidNotification(
+                    title=title,
+                    body=body,
+                    channel_id=android_channel_id,
+                    sound=sound,
+                ),
+            )
+        return msg.Message(**kwargs)
+
     def send_to_device(
         self,
         token: str,
         title: str,
         body: str,
         data: Optional[dict[str, str]] = None,
+        *,
+        android_channel_id: Optional[str] = None,
+        android_sound: Optional[str] = None,
     ) -> str:
-        message = self._messaging.Message(
-            notification=self._messaging.Notification(title=title, body=body),
-            data=data,
-            token=token,
+        message = self._build_message(
+            token,
+            title,
+            body,
+            data,
+            android_channel_id=android_channel_id,
+            android_sound=android_sound,
         )
         response = self._messaging.send(message)
         logger.info("FCM sent to device, message_id=%s", response)
@@ -39,14 +75,20 @@ class FCMService(NotificationServicePort):
         title: str,
         body: str,
         data: Optional[dict[str, str]] = None,
+        *,
+        android_channel_id: Optional[str] = None,
+        android_sound: Optional[str] = None,
     ) -> tuple[int, int, list[str]]:
         messages = [
-            self._messaging.Message(
-                notification=self._messaging.Notification(title=title, body=body),
-                data=data,
-                token=token,
+            self._build_message(
+                t,
+                title,
+                body,
+                data,
+                android_channel_id=android_channel_id,
+                android_sound=android_sound,
             )
-            for token in tokens
+            for t in tokens
         ]
 
         response = self._messaging.send_each(messages)

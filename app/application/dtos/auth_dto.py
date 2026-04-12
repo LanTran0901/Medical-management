@@ -40,6 +40,12 @@ class GoogleLoginRequest(BaseModel):
     platform: Optional[str] = None
     fcm_token: Optional[str] = None
 
+class UpdateDeviceTokenRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, description="ID thiet bi can cap nhat token")
+    fcm_token: Optional[str] = None
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
