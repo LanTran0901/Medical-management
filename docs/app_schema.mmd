@@ -15,7 +15,7 @@ erDiagram
 
     USER_DEVICES {
         string id PK
-        UUID user_id PK FK
+        UUID user_id PK
         text fcm_token
         string device_name
         string platform
@@ -49,7 +49,7 @@ erDiagram
 
     HEALTH_DETAILS {
         UUID id PK
-        UUID profile_id FK UK
+        UUID profile_id FK
         blood_type_enum blood_type
         text_array chronic_diseases
         text_array allergies
@@ -145,7 +145,7 @@ erDiagram
 
     MEDICINE_REMINDERS {
         UUID id PK
-        UUID medicine_inventory_id FK UK
+        UUID medicine_inventory_id FK
         bool enabled
         date start_date
         int repeat_every_value
@@ -222,6 +222,26 @@ erDiagram
         reminder_outcome outcome
         timestamptz occurred_at
         UUID user_id FK
+    }
+
+    APPOINTMENT_REMINDERS {
+        UUID id PK
+        UUID profile_id FK
+        appointment_reminder_type type
+        string title
+        string hospital_name "nullable"
+        string department "nullable"
+        timestamptz appointment_at
+        int remind_before_minutes
+        string vaccine_name "nullable, vaccine rows"
+        int dose_number "nullable"
+        int total_doses "nullable"
+        appointment_reminder_status status
+        text note "nullable"
+        UUID follow_up_appointment_id FK "nullable, checkup"
+        UUID vaccination_dose_id FK "nullable, vaccine"
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     VACCINATION_RECOMMENDATIONS {
@@ -323,6 +343,10 @@ erDiagram
     MEDICAL_RECORDS ||--o{ FOLLOW_UP_APPOINTMENTS : schedules
     FOLLOW_UP_APPOINTMENTS ||--o{ FOLLOW_UP_REMINDER_ACTIONS : logs
     USERS |o--o{ FOLLOW_UP_REMINDER_ACTIONS : performs
+
+    PROFILES ||--o{ APPOINTMENT_REMINDERS : reminds
+    FOLLOW_UP_APPOINTMENTS |o--o{ APPOINTMENT_REMINDERS : optional_link
+    VACCINATION_DOSES |o--o{ APPOINTMENT_REMINDERS : optional_link
 
     PROFILES ||--o{ USER_VACCINATIONS : tracks
     VACCINATION_RECOMMENDATIONS ||--o{ USER_VACCINATIONS : recommends

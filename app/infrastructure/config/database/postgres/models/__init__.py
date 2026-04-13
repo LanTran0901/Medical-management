@@ -24,6 +24,9 @@ from app.infrastructure.config.database.postgres.models.medical_record_models im
     MedicalRecordAttachmentModel,
     MedicalRecordModel,
 )
+from app.infrastructure.config.database.postgres.models.appointment_reminder_models import (
+    AppointmentReminderModel,
+)
 from app.infrastructure.config.database.postgres.models.vaccination_models import (
     UserVaccinationModel,
     VaccinationDoseModel,
@@ -53,6 +56,7 @@ __all__ = [
     "MedicalRecordAttachmentModel",
     "FollowUpAppointmentModel",
     "FollowUpReminderActionModel",
+    "AppointmentReminderModel",
     "VaccinationRecommendationModel",
     "UserVaccinationModel",
     "VaccinationDoseModel",
