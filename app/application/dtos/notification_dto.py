@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SendNotificationRequest(BaseModel):
@@ -31,12 +31,16 @@ class NotificationResponse(BaseModel):
 
 class NotificationListItem(BaseModel):
     id: UUID
+    schedule_id: Optional[UUID] = None
     category: str
     status: Optional[str] = None
+    lifecycle_status: Optional[str] = None
+    occurrence_status: Optional[str] = None
     title: Optional[str] = None
     body: Optional[str] = None
     remind_time: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    snoozed_until: Optional[datetime] = None
     medicine_name: Optional[str] = None
     dosage_per_time: Optional[str] = None
     profile_id: UUID
@@ -57,6 +61,18 @@ class ScheduleComplianceRequest(BaseModel):
 class ScheduleComplianceResponse(BaseModel):
     success: bool
     message: str
+
+
+class ScheduleSnoozeRequest(BaseModel):
+    """Snooze a medicine schedule reminder from now by N minutes."""
+
+    minutes: int = Field(default=10, ge=1, le=120)
+
+
+class ScheduleSnoozeResponse(BaseModel):
+    success: bool
+    message: str
+    snoozed_until: Optional[datetime] = None
 
 
 class ScheduleDispatchResponse(BaseModel):

@@ -20,6 +20,8 @@ from app.application.dtos.notification_dto import (
     NotificationsListResponse,
     ScheduleComplianceRequest,
     ScheduleComplianceResponse,
+    ScheduleSnoozeRequest,
+    ScheduleSnoozeResponse,
     ScheduleDispatchResponse,
 )
 from app.application.usecases.notification_usecases import (
@@ -29,6 +31,7 @@ from app.application.usecases.notification_usecases import (
 )
 from app.application.usecases.schedule_push_usecases import (
     LogScheduleComplianceUseCase,
+    SnoozeScheduleUseCase,
     ProcessDueSchedulePushesUseCase,
 )
 from app.core.config import settings
@@ -102,6 +105,20 @@ async def log_schedule_compliance(
     session: AsyncSession = Depends(get_session),
 ) -> ScheduleComplianceResponse:
     use_case = LogScheduleComplianceUseCase(session)
+    return await use_case.execute(current_user.id, schedule_id, payload)
+
+
+@router.post(
+    "/me/schedules/{schedule_id}/snooze",
+    response_model=ScheduleSnoozeResponse,
+)
+async def snooze_schedule(
+    schedule_id: UUID,
+    payload: ScheduleSnoozeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ScheduleSnoozeResponse:
+    use_case = SnoozeScheduleUseCase(session)
     return await use_case.execute(current_user.id, schedule_id, payload)
 
 
