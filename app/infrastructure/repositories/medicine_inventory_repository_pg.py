@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -12,12 +12,13 @@ from app.domain.entities.medicine_inventory import MedicineInventory
 from app.infrastructure.config.database.postgres.models.medicine_inventory_model import (
     MedicineInventoryModel,
 )
+from app.infrastructure.config.database.postgres.models.family_models import FamilyMembershipModel
 
 
 def _alert_flags(m: MedicineInventoryModel, today: date) -> tuple[bool, bool, bool]:
     """Returns (low_stock, expiring, expired)."""
     low = False
-    if m.min_stock_alert is not None and m.quantity_stock is not None:
+    if m.low_stock_alert_enabled and m.min_stock_alert is not None and m.quantity_stock is not None:
         low = m.quantity_stock <= m.min_stock_alert
 
     expired = False
@@ -42,7 +43,7 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
     def _to_entity(model: MedicineInventoryModel) -> MedicineInventory:
         return MedicineInventory(
             id=model.id,
-            family_id=model.family_id,
+            profile_id=model.profile_id,
             medicine_name=model.medicine_name,
             medicine_type=model.medicine_type,
             expiry_date=model.expiry_date,
@@ -50,7 +51,16 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
             unit=model.unit,
             min_stock_alert=model.min_stock_alert,
             instruction=model.instruction,
+            dosage_value=model.dosage_value,
+            dosage_unit=model.dosage_unit,
+            dosage_per_use_value=model.dosage_per_use_value,
+            dosage_per_use_unit=model.dosage_per_use_unit,
+            use_tags=list(model.use_tags) if model.use_tags is not None else None,
+            storage_location=model.storage_location,
             expiry_alert_days_before=model.expiry_alert_days_before,
+            low_stock_alert_enabled=model.low_stock_alert_enabled,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
         )
 
     async def list_by_family(
@@ -61,7 +71,11 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
     ) -> list[MedicineInventory]:
         stmt = (
             select(MedicineInventoryModel)
-            .where(MedicineInventoryModel.family_id == family_id)
+            .join(
+                FamilyMembershipModel,
+                FamilyMembershipModel.profile_id == MedicineInventoryModel.profile_id,
+            )
+            .where(FamilyMembershipModel.family_id == family_id)
             .order_by(MedicineInventoryModel.medicine_name)
         )
         r = await self.session.execute(stmt)
@@ -80,7 +94,7 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
     async def create(
         self,
         *,
-        family_id: UUID,
+        profile_id: UUID | None,
         medicine_name: str,
         medicine_type: str | None,
         expiry_date: date | None,
@@ -88,10 +102,17 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
         unit: str | None,
         min_stock_alert: Decimal | None,
         instruction: str | None,
+        dosage_value: Decimal | None,
+        dosage_unit: str | None,
+        dosage_per_use_value: Decimal | None,
+        dosage_per_use_unit: str | None,
+        use_tags: list[str] | None,
+        storage_location: str | None,
         expiry_alert_days_before: int | None,
+        low_stock_alert_enabled: bool,
     ) -> MedicineInventory:
         m = MedicineInventoryModel(
-            family_id=family_id,
+            profile_id=profile_id,
             medicine_name=medicine_name.strip(),
             medicine_type=medicine_type,
             expiry_date=expiry_date,
@@ -99,7 +120,14 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
             unit=unit,
             min_stock_alert=min_stock_alert,
             instruction=instruction,
+            dosage_value=dosage_value,
+            dosage_unit=dosage_unit,
+            dosage_per_use_value=dosage_per_use_value,
+            dosage_per_use_unit=dosage_per_use_unit,
+            use_tags=use_tags,
+            storage_location=storage_location,
             expiry_alert_days_before=expiry_alert_days_before,
+            low_stock_alert_enabled=low_stock_alert_enabled,
         )
         self.session.add(m)
         await self.session.flush()
@@ -119,6 +147,7 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
                 setattr(m, key, value.strip())
             else:
                 setattr(m, key, value)
+        m.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(m)
         return self._to_entity(m)

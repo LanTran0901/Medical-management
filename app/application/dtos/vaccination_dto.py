@@ -13,7 +13,9 @@ class VaccinationRecommendationResponse(BaseModel):
     id: UUID
     code: str | None
     name: str
+    disease_name: str | None
     total_doses: int
+    notes: str | None
     created_at: datetime
 
 
@@ -61,14 +63,20 @@ class CreateVaccinationDoseRequest(BaseModel):
     administered_at: date | None = None
     scheduled_at: date | None = None
     location: str | None = None
+    reaction: str | None = None
     proof_url: str | None = None
+    reminder_enabled: bool = False
+    remind_before_days: int | None = Field(None, ge=0)
 
 
 class PatchVaccinationDoseRequest(BaseModel):
     administered_at: date | None = None
     scheduled_at: date | None = None
     location: str | None = None
+    reaction: str | None = None
     proof_url: str | None = None
+    reminder_enabled: bool | None = None
+    remind_before_days: int | None = Field(None, ge=0)
 
 
 DoseStatusLiteral = Literal["ADMINISTERED", "OVERDUE", "SCHEDULED", "UNSCHEDULED"]
@@ -83,6 +91,9 @@ class VaccinationDoseResponse(BaseModel):
     administered_at: date | None
     scheduled_at: date | None
     location: str | None
+    reaction: str | None
     proof_url: str | None
+    reminder_enabled: bool
+    remind_before_days: int | None
     dose_status: DoseStatusLiteral
     is_overdue: bool

@@ -20,7 +20,9 @@ class VaccinationRecommendationModel(Base):
     )
     code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False, index=True)
+    disease_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     total_doses: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("3"))
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -86,4 +88,11 @@ class VaccinationDoseModel(Base):
     administered_at: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
     scheduled_at: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
     location: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    reaction: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     proof_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    reminder_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
+    )
+    remind_before_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)

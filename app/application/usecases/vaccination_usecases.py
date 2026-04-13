@@ -55,7 +55,9 @@ class VaccinationService:
             id=m.id,
             code=m.code,
             name=m.name,
+            disease_name=m.disease_name,
             total_doses=m.total_doses,
+            notes=m.notes,
             created_at=m.created_at,
         )
 
@@ -68,7 +70,10 @@ class VaccinationService:
             administered_at=d.administered_at,
             scheduled_at=d.scheduled_at,
             location=d.location,
+            reaction=d.reaction,
             proof_url=d.proof_url,
+            reminder_enabled=d.reminder_enabled,
+            remind_before_days=d.remind_before_days,
             dose_status=cast(DoseStatusLiteral, status),
             is_overdue=overdue,
         )
@@ -249,7 +254,10 @@ class VaccinationService:
             administered_at=body.administered_at,
             scheduled_at=body.scheduled_at,
             location=body.location,
+            reaction=body.reaction,
             proof_url=body.proof_url,
+            reminder_enabled=body.reminder_enabled,
+            remind_before_days=body.remind_before_days,
         )
         return self._to_dose_response(d, date.today())
 
@@ -268,7 +276,10 @@ class VaccinationService:
             administered_at=body.administered_at,
             scheduled_at=body.scheduled_at,
             location=body.location,
+            reaction=body.reaction,
             proof_url=body.proof_url,
+            reminder_enabled=body.reminder_enabled,
+            remind_before_days=body.remind_before_days,
         )
         return self._to_dose_response(d, date.today())
 
@@ -287,21 +298,33 @@ class VaccinationService:
         administered_at = context.dose.administered_at
         scheduled_at = context.dose.scheduled_at
         location = context.dose.location
+        reaction = context.dose.reaction
         proof_url = context.dose.proof_url
+        reminder_enabled = context.dose.reminder_enabled
+        remind_before_days = context.dose.remind_before_days
         if "administered_at" in patch:
             administered_at = patch["administered_at"]
         if "scheduled_at" in patch:
             scheduled_at = patch["scheduled_at"]
         if "location" in patch:
             location = patch["location"]
+        if "reaction" in patch:
+            reaction = patch["reaction"]
         if "proof_url" in patch:
             proof_url = patch["proof_url"]
+        if "reminder_enabled" in patch:
+            reminder_enabled = patch["reminder_enabled"]
+        if "remind_before_days" in patch:
+            remind_before_days = patch["remind_before_days"]
         d = await self._vac.update_dose(
             dose_id,
             administered_at=administered_at,
             scheduled_at=scheduled_at,
             location=location,
+            reaction=reaction,
             proof_url=proof_url,
+            reminder_enabled=reminder_enabled,
+            remind_before_days=remind_before_days,
         )
         if d is None:
             raise NotFoundError("Dose not found")
@@ -318,21 +341,33 @@ class VaccinationService:
         administered_at = context.dose.administered_at
         scheduled_at = context.dose.scheduled_at
         location = context.dose.location
+        reaction = context.dose.reaction
         proof_url = context.dose.proof_url
+        reminder_enabled = context.dose.reminder_enabled
+        remind_before_days = context.dose.remind_before_days
         if "administered_at" in patch:
             administered_at = patch["administered_at"]
         if "scheduled_at" in patch:
             scheduled_at = patch["scheduled_at"]
         if "location" in patch:
             location = patch["location"]
+        if "reaction" in patch:
+            reaction = patch["reaction"]
         if "proof_url" in patch:
             proof_url = patch["proof_url"]
+        if "reminder_enabled" in patch:
+            reminder_enabled = patch["reminder_enabled"]
+        if "remind_before_days" in patch:
+            remind_before_days = patch["remind_before_days"]
         d = await self._vac.update_dose(
             dose_id,
             administered_at=administered_at,
             scheduled_at=scheduled_at,
             location=location,
+            reaction=reaction,
             proof_url=proof_url,
+            reminder_enabled=reminder_enabled,
+            remind_before_days=remind_before_days,
         )
         if d is None:
             raise NotFoundError("Dose not found")

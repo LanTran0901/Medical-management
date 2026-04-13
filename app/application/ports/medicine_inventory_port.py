@@ -17,7 +17,7 @@ class MedicineInventoryRepositoryPort:
     async def create(
         self,
         *,
-        family_id: UUID,
+        profile_id: UUID | None,
         medicine_name: str,
         medicine_type: str | None,
         expiry_date: date | None,
@@ -25,7 +25,14 @@ class MedicineInventoryRepositoryPort:
         unit: str | None,
         min_stock_alert: Decimal | None,
         instruction: str | None,
+        dosage_value: Decimal | None,
+        dosage_unit: str | None,
+        dosage_per_use_value: Decimal | None,
+        dosage_per_use_unit: str | None,
+        use_tags: list[str] | None,
+        storage_location: str | None,
         expiry_alert_days_before: int | None,
+        low_stock_alert_enabled: bool,
     ) -> MedicineInventory:
         raise NotImplementedError
 

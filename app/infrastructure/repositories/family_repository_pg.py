@@ -22,7 +22,7 @@ from app.domain.entities.family import (
     FamilyRole,
     PublicInvitePreview,
 )
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile, ProfileStatus
 from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
@@ -35,6 +35,31 @@ from app.infrastructure.config.database.postgres.models.profile_models import (
     ProfileModel,
 )
 from app.infrastructure.config.database.postgres.models.user_model import UserModel
+
+
+def _parse_emergency_contacts_raw(raw: object) -> list[EmergencyContactEntry]:
+    if not isinstance(raw, list):
+        return []
+    out: list[EmergencyContactEntry] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+
+        def _s(key: str) -> str | None:
+            v = item.get(key)
+            if v is None:
+                return None
+            if isinstance(v, str):
+                t = v.strip()
+                return t if t else None
+            return str(v)
+
+        out.append(EmergencyContactEntry(name=_s("name"), phone=_s("phone"), relationship=_s("relationship")))
+    return out
+
+
+def _dump_emergency_contacts(entries: list[EmergencyContactEntry]) -> list[dict[str, str | None]]:
+    return [{"name": e.name, "phone": e.phone, "relationship": e.relationship} for e in entries]
 
 
 class FamilyRepositoryPG(FamilyRepositoryPort):
@@ -144,9 +169,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
             blood_type=m.blood_type,
             chronic_diseases=list(m.chronic_diseases) if m.chronic_diseases is not None else None,
             allergies=list(m.allergies) if m.allergies is not None else None,
-            emergency_contact=m.emergency_contact,
             notes=m.notes,
             updated_at=m.updated_at,
+            drug_allergies=list(m.drug_allergies) if m.drug_allergies is not None else None,
+            food_allergies=list(m.food_allergies) if m.food_allergies is not None else None,
+            emergency_contacts=_parse_emergency_contacts_raw(m.emergency_contacts),
         )
 
     async def get_family(self, family_id: UUID) -> Family | None:
@@ -764,7 +791,9 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         blood_type: str | None = None,
         chronic_diseases: list[str] | None = None,
         allergies: list[str] | None = None,
-        emergency_contact: str | None = None,
+        drug_allergies: list[str] | None = None,
+        food_allergies: list[str] | None = None,
+        emergency_contacts: list[EmergencyContactEntry] | None = None,
         notes: str | None = None,
     ) -> HealthDetail:
         stmt = select(HealthDetailModel).where(HealthDetailModel.profile_id == profile_id)
@@ -777,7 +806,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
                 blood_type=blood_type,
                 chronic_diseases=chronic_diseases,
                 allergies=allergies,
-                emergency_contact=emergency_contact,
+                drug_allergies=drug_allergies,
+                food_allergies=food_allergies,
+                emergency_contacts=_dump_emergency_contacts(
+                    emergency_contacts if emergency_contacts is not None else []
+                ),
                 notes=notes,
                 updated_at=now,
             )
@@ -789,8 +822,12 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
                 m.chronic_diseases = chronic_diseases
             if allergies is not None:
                 m.allergies = allergies
-            if emergency_contact is not None:
-                m.emergency_contact = emergency_contact
+            if drug_allergies is not None:
+                m.drug_allergies = drug_allergies
+            if food_allergies is not None:
+                m.food_allergies = food_allergies
+            if emergency_contacts is not None:
+                m.emergency_contacts = _dump_emergency_contacts(emergency_contacts)
             if notes is not None:
                 m.notes = notes
             m.updated_at = now

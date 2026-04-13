@@ -26,7 +26,9 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
             id=model.id,
             code=model.code,
             name=model.name,
+            disease_name=model.disease_name,
             total_doses=model.total_doses,
+            notes=model.notes,
             created_at=model.created_at,
         )
 
@@ -50,7 +52,10 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
             administered_at=model.administered_at,
             scheduled_at=model.scheduled_at,
             location=model.location,
+            reaction=model.reaction,
             proof_url=model.proof_url,
+            reminder_enabled=model.reminder_enabled,
+            remind_before_days=model.remind_before_days,
         )
 
     async def list_recommendations(self) -> list[VaccinationRecommendation]:
@@ -194,7 +199,10 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         administered_at: date | None,
         scheduled_at: date | None,
         location: str | None,
+        reaction: str | None,
         proof_url: str | None,
+        reminder_enabled: bool,
+        remind_before_days: int | None,
     ) -> VaccinationDose:
         m = VaccinationDoseModel(
             user_vaccination_id=user_vaccination_id,
@@ -202,7 +210,10 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
             administered_at=administered_at,
             scheduled_at=scheduled_at,
             location=location,
+            reaction=reaction,
             proof_url=proof_url,
+            reminder_enabled=reminder_enabled,
+            remind_before_days=remind_before_days,
         )
         self.session.add(m)
         await self.session.flush()
@@ -216,7 +227,10 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         administered_at: date | None,
         scheduled_at: date | None,
         location: str | None,
+        reaction: str | None,
         proof_url: str | None,
+        reminder_enabled: bool,
+        remind_before_days: int | None,
     ) -> VaccinationDose | None:
         dose = await self.session.get(VaccinationDoseModel, dose_id)
         if dose is None:
@@ -224,7 +238,10 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         dose.administered_at = administered_at
         dose.scheduled_at = scheduled_at
         dose.location = location
+        dose.reaction = reaction
         dose.proof_url = proof_url
+        dose.reminder_enabled = reminder_enabled
+        dose.remind_before_days = remind_before_days
         await self.session.flush()
         await self.session.refresh(dose)
         return self._to_dose(dose)

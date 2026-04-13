@@ -107,7 +107,7 @@ BEGIN
       );
 
       INSERT INTO health_details (
-        id, profile_id, blood_type, chronic_diseases, allergies, emergency_contact, notes, updated_at
+        id, profile_id, blood_type, chronic_diseases, allergies, emergency_contacts, notes, updated_at
       )
       VALUES (
         gen_random_uuid(),
@@ -115,7 +115,13 @@ BEGIN
         (ARRAY['A_POS','A_NEG','B_POS','B_NEG','O_POS','O_NEG','AB_POS','AB_NEG'])[(1 + (u % 8))]::blood_type_enum,
         ARRAY['Không'],
         ARRAY['Không'],
-        format('09%08s', trunc(random() * 100000000)::int),
+        jsonb_build_array(
+          jsonb_build_object(
+            'name', 'Liên hệ khẩn cấp',
+            'phone', format('09%08s', trunc(random() * 100000000)::int),
+            'relationship', 'Người nhà'
+          )
+        ),
         'Hồ sơ sức khỏe demo gia đình Việt',
         now()
       );
@@ -157,7 +163,7 @@ BEGIN
     );
 
     INSERT INTO health_details (
-      id, profile_id, blood_type, chronic_diseases, allergies, emergency_contact, notes, updated_at
+      id, profile_id, blood_type, chronic_diseases, allergies, emergency_contacts, notes, updated_at
     )
     VALUES (
       gen_random_uuid(),
@@ -165,7 +171,13 @@ BEGIN
       'O_POS'::blood_type_enum,
       ARRAY['Không'],
       ARRAY['Không'],
-      format('09%08s', trunc(random() * 100000000)::int),
+      jsonb_build_array(
+        jsonb_build_object(
+          'name', 'Phụ huynh',
+          'phone', format('09%08s', trunc(random() * 100000000)::int),
+          'relationship', 'Cha/mẹ'
+        )
+      ),
       'Hồ sơ trẻ em demo',
       now()
     );
@@ -175,16 +187,16 @@ BEGIN
   END LOOP;
 END $$;
 
--- 3) medicine_inventory (5 rows/family)
-INSERT INTO medicine_inventory (
-  id, family_id, medicine_name, medicine_type, expiry_date,
-  quantity_stock, unit, min_stock_alert, instruction
+-- 3) family_medicine_inventory (5 rows/family)
+INSERT INTO family_medicine_inventory (
+  id, family_id, created_by_user_id, medicine_name, expiry_date,
+  quantity_stock, unit, min_stock_alert, note
 )
 SELECT
   gen_random_uuid(),
   f.id,
+  f.created_by,
   (ARRAY['Paracetamol 500mg','Vitamin C','Amoxicillin','Ibuprofen 400mg','ORS'])[(g.i % 5) + 1],
-  (ARRAY['Viên nén','Viên sủi','Kháng sinh','Viên nén','Bù điện giải'])[(g.i % 5) + 1],
   current_date + ((180 + g.i * 15) || ' days')::interval,
   (5 + g.i)::numeric(12,3),
   (ARRAY['viên','ống','viên','viên','gói'])[(g.i % 5) + 1],

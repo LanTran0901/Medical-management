@@ -38,14 +38,23 @@ class MedicalRecordModel(Base):
         sa.ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    title: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     diagnosis_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     diagnosis_slug: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     doctor_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     hospital_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     visit_date: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
     specialty: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    symptoms: Mapped[list[str] | None] = mapped_column(sa.ARRAY(sa.Text()), nullable=True)
+    test_results: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    doctor_advice: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
         server_default=sa.text("now()"),
@@ -74,6 +83,11 @@ class MedicalRecordAttachmentModel(Base):
     file_name: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     file_type: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     file_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
 
 
 class FollowUpAppointmentModel(Base):
@@ -95,10 +109,23 @@ class FollowUpAppointmentModel(Base):
         nullable=False,
     )
     purpose: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    facility_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     remind_before_days: Mapped[int] = mapped_column(
         sa.Integer,
         nullable=False,
         server_default=sa.text("1"),
+    )
+    reminder_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("true"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
     )
 
 

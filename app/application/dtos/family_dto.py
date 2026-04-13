@@ -16,6 +16,14 @@ from app.domain.entities.profile import Profile, ProfileStatus
 E164_PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 FAMILY_PERMISSION_ROLE_VALUES = {role.value for role in FamilyRole}
 
+MAX_EMERGENCY_CONTACTS = 10
+
+
+class EmergencyContactItem(BaseModel):
+    name: str | None = Field(None, max_length=255)
+    phone: str | None = Field(None, max_length=64)
+    relationship: str | None = Field(None, max_length=128)
+
 
 def _coerce_relation_role_payload(value: object) -> object:
     if not isinstance(value, dict):
@@ -183,6 +191,18 @@ class CreateProxyHealthPayload(BaseModel):
     blood_type: str | None = None
     chronic_conditions: list[str] | None = None
     allergies: list[str] | None = None
+    drug_allergies: list[str] | None = None
+    food_allergies: list[str] | None = None
+    emergency_contacts: list[EmergencyContactItem] | None = None
+
+    @field_validator("emergency_contacts")
+    @classmethod
+    def emergency_contacts_max(
+        cls, v: list[EmergencyContactItem] | None
+    ) -> list[EmergencyContactItem] | None:
+        if v is not None and len(v) > MAX_EMERGENCY_CONTACTS:
+            raise ValueError(f"At most {MAX_EMERGENCY_CONTACTS} emergency contacts allowed")
+        return v
 
 
 class CreateProfileInFamilyRequest(BaseModel):
@@ -230,7 +250,9 @@ class HealthDetailResponse(BaseModel):
     blood_type: str | None
     chronic_diseases: list[str] | None
     allergies: list[str] | None
-    emergency_contact: str | None
+    drug_allergies: list[str] | None = None
+    food_allergies: list[str] | None = None
+    emergency_contacts: list[EmergencyContactItem] = Field(default_factory=list)
     notes: str | None
     updated_at: datetime
 
@@ -241,7 +263,12 @@ class HealthDetailResponse(BaseModel):
             blood_type=e.blood_type,
             chronic_diseases=e.chronic_diseases,
             allergies=e.allergies,
-            emergency_contact=e.emergency_contact,
+            drug_allergies=e.drug_allergies,
+            food_allergies=e.food_allergies,
+            emergency_contacts=[
+                EmergencyContactItem(name=x.name, phone=x.phone, relationship=x.relationship)
+                for x in e.emergency_contacts
+            ],
             notes=e.notes,
             updated_at=e.updated_at,
         )
@@ -254,8 +281,19 @@ class PatchHealthDetailRequest(BaseModel):
         validation_alias=AliasChoices("chronic_diseases", "chronic_conditions"),
     )
     allergies: list[str] | None = None
-    emergency_contact: str | None = None
+    drug_allergies: list[str] | None = None
+    food_allergies: list[str] | None = None
+    emergency_contacts: list[EmergencyContactItem] | None = None
     notes: str | None = None
+
+    @field_validator("emergency_contacts")
+    @classmethod
+    def emergency_contacts_max(
+        cls, v: list[EmergencyContactItem] | None
+    ) -> list[EmergencyContactItem] | None:
+        if v is not None and len(v) > MAX_EMERGENCY_CONTACTS:
+            raise ValueError(f"At most {MAX_EMERGENCY_CONTACTS} emergency contacts allowed")
+        return v
 
 
 class FamilyResponse(BaseModel):
@@ -393,13 +431,27 @@ class FamilyMemberHealthResponse(BaseModel):
     blood_type: str | None
     chronic_conditions: list[str]
     allergies: list[str]
+    drug_allergies: list[str]
+    food_allergies: list[str]
+    emergency_contacts: list[EmergencyContactItem] = Field(default_factory=list)
 
     @classmethod
     def from_entity(cls, h: HealthDetail | None) -> FamilyMemberHealthResponse:
+        ec = (
+            [
+                EmergencyContactItem(name=x.name, phone=x.phone, relationship=x.relationship)
+                for x in h.emergency_contacts
+            ]
+            if h
+            else []
+        )
         return cls(
             blood_type=h.blood_type if h else None,
             chronic_conditions=list(h.chronic_diseases or []) if h else [],
             allergies=list(h.allergies or []) if h else [],
+            drug_allergies=list(h.drug_allergies or []) if h else [],
+            food_allergies=list(h.food_allergies or []) if h else [],
+            emergency_contacts=ec,
         )
 
 

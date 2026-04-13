@@ -11,6 +11,7 @@ from app.core.config import settings as app_settings
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
     CreateProfileInFamilyRequest,
+    CreateProxyHealthPayload,
     FamilyInviteListRequest,
     InviteByPhoneRequest,
     JoinFamilyRequest,
@@ -33,13 +34,43 @@ from app.domain.entities.family import (
     FamilyRole,
     PublicInvitePreview,
 )
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile, ProfileStatus
 from app.domain.services.family_permission import has_at_least
 
 
 def _utc_now():
     return datetime.now(timezone.utc)
+
+
+def _emergency_contacts_from_patch(body: PatchHealthDetailRequest) -> list[EmergencyContactEntry] | None:
+    if "emergency_contacts" not in body.model_fields_set:
+        return None
+    raw = body.emergency_contacts
+    if raw is None:
+        return []
+    return [
+        EmergencyContactEntry(name=x.name, phone=x.phone, relationship=x.relationship) for x in raw
+    ]
+
+
+def _emergency_contacts_from_proxy_payload(hp: CreateProxyHealthPayload) -> list[EmergencyContactEntry] | None:
+    if "emergency_contacts" not in hp.model_fields_set:
+        return None
+    raw = hp.emergency_contacts
+    if raw is None:
+        return []
+    return [
+        EmergencyContactEntry(name=x.name, phone=x.phone, relationship=x.relationship) for x in raw
+    ]
+
+
+def _is_unique_violation(exc: IntegrityError) -> bool:
+    orig = getattr(exc, "orig", None)
+    code = getattr(orig, "pgcode", None)
+    if code is not None:
+        return str(code) == "23505"
+    return "unique" in str(exc).lower()
 
 
 class FamiliesService:
@@ -291,14 +322,19 @@ class FamiliesService:
         if pending is not None:
             raise ConflictError("Pending invite already exists for this target")
 
-        invite = await self._repo.create_family_invite(
-            family_id=fam.id,
-            user_id=target_user_id,
-            phone_number=body.phone_number,
-            role=body.role,
-            relation_role=body.relation_role,
-            invited_by=inviter_user_id,
-        )
+        try:
+            invite = await self._repo.create_family_invite(
+                family_id=fam.id,
+                user_id=target_user_id,
+                phone_number=body.phone_number,
+                role=body.role,
+                relation_role=body.relation_role,
+                invited_by=inviter_user_id,
+            )
+        except IntegrityError as e:
+            if _is_unique_violation(e):
+                raise ConflictError("Pending invite already exists for this target") from e
+            raise
         return {
             "dry_run": False,
             "invite": invite,
@@ -430,11 +466,15 @@ class FamiliesService:
             linked_user_id=None,
         )
         if body.health_profile is not None:
+            hp = body.health_profile
             await self._repo.upsert_health(
                 prof.id,
-                blood_type=body.health_profile.blood_type,
-                chronic_diseases=body.health_profile.chronic_conditions,
-                allergies=body.health_profile.allergies,
+                blood_type=hp.blood_type,
+                chronic_diseases=hp.chronic_conditions,
+                allergies=hp.allergies,
+                drug_allergies=hp.drug_allergies,
+                food_allergies=hp.food_allergies,
+                emergency_contacts=_emergency_contacts_from_proxy_payload(hp),
             )
         return prof, membership
 
@@ -682,7 +722,9 @@ class FamiliesService:
             blood_type=body.blood_type,
             chronic_diseases=body.chronic_diseases,
             allergies=body.allergies,
-            emergency_contact=body.emergency_contact,
+            drug_allergies=body.drug_allergies,
+            food_allergies=body.food_allergies,
+            emergency_contacts=_emergency_contacts_from_patch(body),
             notes=body.notes,
         )
 
@@ -755,6 +797,8 @@ class FamiliesService:
             blood_type=body.blood_type,
             chronic_diseases=body.chronic_diseases,
             allergies=body.allergies,
-            emergency_contact=body.emergency_contact,
+            drug_allergies=body.drug_allergies,
+            food_allergies=body.food_allergies,
+            emergency_contacts=_emergency_contacts_from_patch(body),
             notes=body.notes,
         )

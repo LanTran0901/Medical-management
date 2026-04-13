@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.application.dtos.family_dto import ProfileResponse
+from app.application.dtos.family_dto import EmergencyContactItem, ProfileResponse
 from app.application.dtos.medical_dto import MedicalRecordResponse
 from app.application.dtos.vaccination_dto import UserVaccinationWithDosesResponse
 from app.domain.entities.health_detail import HealthDetail
@@ -56,7 +56,9 @@ class UserMeHealthProfileResponse(BaseModel):
     blood_type: str | None
     chronic_diseases: list[str] | None
     allergies: list[str] | None
-    emergency_contact: str | None
+    drug_allergies: list[str] | None = None
+    food_allergies: list[str] | None = None
+    emergency_contacts: list[EmergencyContactItem] = Field(default_factory=list)
     notes: str | None
     updated_at: datetime
     medical_records: list[MedicalRecordResponse] = Field(default_factory=list)
@@ -76,7 +78,12 @@ class UserMeHealthProfileResponse(BaseModel):
                 blood_type=health.blood_type,
                 chronic_diseases=health.chronic_diseases,
                 allergies=health.allergies,
-                emergency_contact=health.emergency_contact,
+                drug_allergies=health.drug_allergies,
+                food_allergies=health.food_allergies,
+                emergency_contacts=[
+                    EmergencyContactItem(name=x.name, phone=x.phone, relationship=x.relationship)
+                    for x in health.emergency_contacts
+                ],
                 notes=health.notes,
                 updated_at=health.updated_at,
                 medical_records=medical_records,
@@ -87,7 +94,9 @@ class UserMeHealthProfileResponse(BaseModel):
             blood_type=None,
             chronic_diseases=None,
             allergies=None,
-            emergency_contact=None,
+            drug_allergies=None,
+            food_allergies=None,
+            emergency_contacts=[],
             notes=None,
             updated_at=datetime.now(timezone.utc),
             medical_records=medical_records,

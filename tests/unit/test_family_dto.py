@@ -14,7 +14,7 @@ from app.application.dtos.family_dto import (
     ProfileResponse,
 )
 from app.domain.entities.family import Family, FamilyMembership, FamilyRole
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile
 
 
@@ -30,13 +30,17 @@ def test_health_detail_response_from_entity() -> None:
         blood_type="A+",
         chronic_diseases=["x"],
         allergies=None,
-        emergency_contact="911",
         notes="n",
         updated_at=_dt(),
+        emergency_contacts=[
+            EmergencyContactEntry(name="ER", phone="911", relationship=None),
+        ],
     )
     r = HealthDetailResponse.from_entity(hd)
     assert r.profile_id == pid
     assert r.blood_type == "A+"
+    assert len(r.emergency_contacts) == 1
+    assert r.emergency_contacts[0].phone == "911"
 
 
 def test_family_response_and_summary_from_entity() -> None:

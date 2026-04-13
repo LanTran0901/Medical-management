@@ -9,11 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from app.api.dependencies import (
     get_current_user,
     get_families_service,
-    get_medicine_inventory_service,
+    get_family_medicine_inventory_service,
 )
 from app.application.dtos.medicine_dto import (
-    CreateMedicineInventoryRequest,
-    MedicineInventoryResponse,
+    CreateFamilyMedicineInventoryRequest,
+    FamilyMedicineInventoryResponse,
 )
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
@@ -38,7 +38,7 @@ from app.application.dtos.family_dto import (
 )
 from app.application.family_errors import ConflictError, ForbiddenError, GoneError, NotFoundError
 from app.application.usecases.family_usecases import FamiliesService
-from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
+from app.application.usecases.family_medicine_inventory_usecases import FamilyMedicineInventoryService
 from app.domain.entities.user import User
 
 router = APIRouter(prefix="/families", tags=["families"])
@@ -446,22 +446,16 @@ async def list_profiles(
 
 @router.get(
     "/{family_id}/medicine-inventory",
-    response_model=list[MedicineInventoryResponse],
+    response_model=list[FamilyMedicineInventoryResponse],
     summary="List medicine inventory",
 )
 async def list_medicine_inventory(
     family_id: UUID,
-    alert: str | None = None,
     user: User = Depends(get_current_user),
-    svc: MedicineInventoryService = Depends(get_medicine_inventory_service),
-) -> list[MedicineInventoryResponse]:
-    if alert is not None and alert not in ("low_stock", "expiring"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Query 'alert' must be 'low_stock' or 'expiring' if provided",
-        )
+    svc: FamilyMedicineInventoryService = Depends(get_family_medicine_inventory_service),
+) -> list[FamilyMedicineInventoryResponse]:
     try:
-        return await svc.list_items(family_id, user.id, alert=alert)
+        return await svc.list_items(family_id, user.id)
     except Exception as e:
         _handle_family_error(e)
         raise
@@ -469,16 +463,16 @@ async def list_medicine_inventory(
 
 @router.post(
     "/{family_id}/medicine-inventory",
-    response_model=MedicineInventoryResponse,
+    response_model=FamilyMedicineInventoryResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Add medicine to family inventory",
 )
 async def create_medicine_inventory(
     family_id: UUID,
-    body: CreateMedicineInventoryRequest,
+    body: CreateFamilyMedicineInventoryRequest,
     user: User = Depends(get_current_user),
-    svc: MedicineInventoryService = Depends(get_medicine_inventory_service),
-) -> MedicineInventoryResponse:
+    svc: FamilyMedicineInventoryService = Depends(get_family_medicine_inventory_service),
+) -> FamilyMedicineInventoryResponse:
     try:
         return await svc.create_item(family_id, user.id, body)
     except Exception as e:

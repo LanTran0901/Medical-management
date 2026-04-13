@@ -736,9 +736,9 @@ async def test_patch_health_ok(repo: AsyncMock, svc: FamiliesService) -> None:
         blood_type=None,
         chronic_diseases=None,
         allergies=None,
-        emergency_contact=None,
         notes=None,
         updated_at=_dt(),
+        emergency_contacts=[],
     )
     repo.upsert_health = AsyncMock(return_value=hd)
     out = await svc.patch_health(
