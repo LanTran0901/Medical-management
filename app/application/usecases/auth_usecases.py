@@ -15,6 +15,7 @@ from app.application.dtos.auth_dto import (
     ForgotPasswordResponse,
     LogoutRequest,
     RegisterRequest,
+    UpdateDeviceTokenRequest,
 )
 from app.application.ports.user_port import UserRepositoryPort
 from app.application.ports.auth_port import AuthRepositoryPort
@@ -311,3 +312,28 @@ class LogoutUseCase:
         if device:
             device.fcm_token = None
             await self.auth_repository.update_device(device)
+
+
+class UpdateDeviceTokenUseCase:
+    def __init__(self, auth_repository: AuthRepositoryPort):
+        self.auth_repository = auth_repository
+
+    async def execute(self, user_id: uuid.UUID, request: UpdateDeviceTokenRequest) -> None:
+        device = await self.auth_repository.get_device(request.device_id, user_id)
+        if device:
+            device.update_activity(request.fcm_token)
+            if request.device_name is not None:
+                device.device_name = request.device_name
+            if request.platform is not None:
+                device.platform = request.platform
+            await self.auth_repository.update_device(device)
+            return
+
+        device = UserDevice.create(
+            request.device_id,
+            user_id,
+            request.fcm_token,
+            request.device_name,
+            request.platform,
+        )
+        await self.auth_repository.create_device(device)

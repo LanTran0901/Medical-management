@@ -7,6 +7,7 @@ Tắt nhanh: `HOMEDMEDAI_INTEGRATION=0 pytest tests/integration/`
 
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -45,6 +46,7 @@ def test_case_b_member_cannot_rotate_invite(client) -> None:
     assert cr.status_code == 201, cr.text
     family_id = cr.json()["id"]
     invite = cr.json()["invite_code"]
+    assert re.fullmatch(r"[A-Z0-9]{8}", invite)
 
     jr = client.post(
         "/families/join",

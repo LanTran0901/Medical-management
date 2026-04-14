@@ -23,6 +23,7 @@ from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.access_control_usecases import AccessControlService
 from app.application.usecases.medical_records_usecases import MedicalRecordsService
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
+from app.application.usecases.medicine_schedule_usecases import MedicineScheduleService
 from app.application.usecases.vaccination_usecases import VaccinationService
 from app.application.usecases.family_medicine_inventory_usecases import FamilyMedicineInventoryService
 from app.core.config import settings as app_settings
@@ -128,6 +129,15 @@ def get_family_medicine_inventory_service(
 ) -> FamilyMedicineInventoryService:
     return FamilyMedicineInventoryService(
         FamilyMedicineInventoryRepositoryPG(session),
+        AccessControlService(AccessControlPG(session)),
+    )
+
+
+def get_medicine_schedule_service(
+    session: AsyncSession = Depends(get_session),
+) -> MedicineScheduleService:
+    return MedicineScheduleService(
+        session,
         AccessControlService(AccessControlPG(session)),
     )
 

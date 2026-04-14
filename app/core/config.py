@@ -41,6 +41,40 @@ class Settings(BaseSettings):
     google_redirect_uri: str | None = None
     firebase_credentials_path: str | None = None
 
+    # Schedule → FCM dispatch (optional background loop + manual trigger)
+    schedule_dispatch_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "SCHEDULE_DISPATCH_ENABLED",
+            "schedule_dispatch_enabled",
+        ),
+        description="When true and Firebase is configured, poll due MEDICINE schedules and send FCM.",
+    )
+    schedule_dispatch_interval_seconds: int = Field(
+        default=60,
+        ge=10,
+        validation_alias=AliasChoices(
+            "SCHEDULE_DISPATCH_INTERVAL_SECONDS",
+            "schedule_dispatch_interval_seconds",
+        ),
+    )
+    fcm_android_channel_schedule: str = Field(
+        default="medicine_reminders",
+        validation_alias=AliasChoices(
+            "FCM_ANDROID_CHANNEL_SCHEDULE",
+            "fcm_android_channel_schedule",
+        ),
+        description="Must match a notification channel id on the Android app.",
+    )
+    internal_dispatch_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "INTERNAL_DISPATCH_SECRET",
+            "internal_dispatch_secret",
+        ),
+        description="If set, POST /notifications/dispatch/schedules requires header X-Internal-Secret.",
+    )
+
     # SMTP Config for Emails
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587

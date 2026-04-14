@@ -14,12 +14,14 @@ from app.application.dtos.auth_dto import (
     ForgotPasswordResponse,
     LogoutRequest,
     RegisterRequest,
+    UpdateDeviceTokenRequest,
 )
 from app.application.dtos.user_dto import UserResponse
 from app.application.usecases.auth_usecases import (
     RegisterUseCase, LoginUseCase, GoogleLoginUseCase, 
     ChangePasswordUseCase, RefreshTokenUseCase,
-    ForgotPasswordUseCase, ResetPasswordUseCase, LogoutUseCase
+    ForgotPasswordUseCase, ResetPasswordUseCase, LogoutUseCase,
+    UpdateDeviceTokenUseCase,
 )
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
@@ -142,4 +144,13 @@ async def logout(
         await LogoutUseCase(auth_repo).execute(user.id, payload)
     except ValueError as e:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return None
+
+@router.post("/device-token", status_code=status.HTTP_204_NO_CONTENT)
+async def update_device_token(
+    payload: UpdateDeviceTokenRequest,
+    user: User = Depends(get_current_user),
+    auth_repo: AuthRepositoryPG = Depends(get_auth_repository),
+):
+    await UpdateDeviceTokenUseCase(auth_repo).execute(user.id, payload)
     return None

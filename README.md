@@ -173,7 +173,6 @@ Body:
 
 ```json
 {
-  "session_id": "demo-session-1",
   "question": "Lich tiem Gardasil 9 nhu the nao?"
 }
 ```
@@ -184,5 +183,5 @@ Ket qua tra ve:
 - `sources`: danh sach disease/drug/vaccine da duoc truy xuat
 
 Luu y:
-- Lich su hoi dap van co the duoc luu vao collection Mongo `rag_chat_history`.
+- Lich su hoi dap duoc luu theo `user_id` (lay tu access token), khong can gui `session_id` tu client.
 - Neu chua co embedding, he thong se fallback sang keyword search tren 3 bang noi bo.

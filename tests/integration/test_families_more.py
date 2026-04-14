@@ -4,6 +4,7 @@ Families API — thêm case SC-001 (c)(d), join, rotate (F3–F7).
 
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -187,6 +188,7 @@ def test_rotate_invite_invalidates_old_code(client) -> None:
     assert cr.status_code == 201
     family_id = cr.json()["id"]
     old_code = cr.json()["invite_code"]
+    assert re.fullmatch(r"[A-Z0-9]{8}", old_code)
 
     rot = client.post(
         f"/families/{family_id}/invite/rotate",
@@ -195,6 +197,7 @@ def test_rotate_invite_invalidates_old_code(client) -> None:
     assert rot.status_code == 200
     new_code = rot.json()["invite_code"]
     assert new_code != old_code
+    assert re.fullmatch(r"[A-Z0-9]{8}", new_code)
 
     late = register_user(client)
     late_tok = login_access_token(client, late)
