@@ -128,7 +128,7 @@ class AccessControlService:
         context = await self._access.get_medicine_item_context(item_id)
         if context is None:
             raise NotFoundError("Medicine item not found")
-        if await self._has_family_membership(user_id, (context.item.family_id,)):
+        if await self._has_family_membership(user_id, context.family_ids):
             return context
         raise ForbiddenError("Not allowed to view medicine inventory")
 
@@ -140,7 +140,7 @@ class AccessControlService:
         context = await self._access.get_medicine_item_context(item_id)
         if context is None:
             raise NotFoundError("Medicine item not found")
-        if await self._has_family_admin_membership(user_id, (context.item.family_id,)):
+        if await self._has_family_admin_membership(user_id, context.family_ids):
             return context
         raise ForbiddenError("Members may only view medicine inventory")
 

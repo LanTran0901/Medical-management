@@ -24,14 +24,19 @@ class MedicalRecordRepositoryPG(MedicalRecordRepositoryPort):
             id=model.id,
             profile_id=model.profile_id,
             created_by=model.created_by,
+            title=model.title,
             diagnosis_name=model.diagnosis_name,
             diagnosis_slug=model.diagnosis_slug,
             doctor_name=model.doctor_name,
             hospital_name=model.hospital_name,
             visit_date=model.visit_date,
             specialty=model.specialty,
+            symptoms=list(model.symptoms) if model.symptoms is not None else None,
+            test_results=model.test_results,
+            doctor_advice=model.doctor_advice,
             notes=model.notes,
             created_at=model.created_at,
+            updated_at=model.updated_at,
             deleted_at=model.deleted_at,
         )
 
@@ -85,23 +90,31 @@ class MedicalRecordRepositoryPG(MedicalRecordRepositoryPort):
         *,
         profile_id: UUID,
         created_by: UUID,
+        title: str | None,
         diagnosis_name: str | None,
         diagnosis_slug: str | None,
         doctor_name: str | None,
         hospital_name: str | None,
         visit_date: date | None,
         specialty: str | None,
+        symptoms: list[str] | None,
+        test_results: str | None,
+        doctor_advice: str | None,
         notes: str | None,
     ) -> MedicalRecord:
         m = MedicalRecordModel(
             profile_id=profile_id,
             created_by=created_by,
+            title=title,
             diagnosis_name=diagnosis_name,
             diagnosis_slug=diagnosis_slug,
             doctor_name=doctor_name,
             hospital_name=hospital_name,
             visit_date=visit_date,
             specialty=specialty,
+            symptoms=symptoms,
+            test_results=test_results,
+            doctor_advice=doctor_advice,
             notes=notes,
         )
         self.session.add(m)
@@ -115,6 +128,7 @@ class MedicalRecordRepositoryPG(MedicalRecordRepositoryPort):
             return None
         for k, v in fields.items():
             setattr(m, k, v)
+        m.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         await self.session.refresh(m)
         return self._to_record(m)

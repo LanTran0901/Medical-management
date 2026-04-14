@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import ENUM, UUID
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.config.database.base import Base
@@ -83,6 +83,39 @@ class ProfileModel(Base):
         nullable=False,
         server_default=sa.text("now()"),
     )
+
+
+class HealthMetricReadingModel(Base):
+    __tablename__ = "health_metric_readings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=sa.text("gen_random_uuid()"),
+    )
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    metric_type: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
+    measured_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+    )
+    systolic: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    diastolic: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    heart_rate: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    weight_kg: Mapped[Decimal | None] = mapped_column(sa.Numeric(5, 1), nullable=True)
+    glucose_mmol_l: Mapped[Decimal | None] = mapped_column(sa.Numeric(5, 2), nullable=True)
+    status: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now()"),
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=True,
@@ -112,7 +145,19 @@ class HealthDetailModel(Base):
         sa.ARRAY(sa.Text()),
         nullable=True,
     )
-    emergency_contact: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    drug_allergies: Mapped[list[str] | None] = mapped_column(
+        sa.ARRAY(sa.Text()),
+        nullable=True,
+    )
+    food_allergies: Mapped[list[str] | None] = mapped_column(
+        sa.ARRAY(sa.Text()),
+        nullable=True,
+    )
+    emergency_contacts: Mapped[list] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=sa.text("'[]'::jsonb"),
+    )
     notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),

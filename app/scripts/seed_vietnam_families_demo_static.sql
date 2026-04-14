@@ -78,14 +78,14 @@ INSERT INTO profiles (id, owner_user_id, linked_user_id, full_name, dob, gender,
 ('44444444-4444-4444-4444-444444444102','11111111-1111-1111-1111-111111111005',NULL,'Bé Mít B','2019-02-02','male',108,18,'Hà Nội','https://demo.vn/v2.png','virtual',now(),now(),NULL),
 ('44444444-4444-4444-4444-444444444103','11111111-1111-1111-1111-111111111009',NULL,'Bé Mít C','2020-03-03','female',102,16,'Hải Phòng','https://demo.vn/v3.png','virtual',now(),now(),NULL);
 
-INSERT INTO health_details (id, profile_id, blood_type, chronic_diseases, allergies, emergency_contact, notes, updated_at)
+INSERT INTO health_details (id, profile_id, blood_type, chronic_diseases, allergies, emergency_contacts, notes, updated_at)
 SELECT
   gen_random_uuid(),
   p.id,
   'O_POS'::blood_type_enum,
   ARRAY['Không'],
   ARRAY['Không'],
-  '0900000000',
+  '[{"name":"Liên hệ khẩn cấp","phone":"0900000000","relationship":"Người nhà"}]'::jsonb,
   'Dữ liệu demo',
   now()
 FROM profiles p;
@@ -110,17 +110,17 @@ INSERT INTO family_memberships (id, family_id, profile_id, role, added_by, creat
 ('55555555-5555-5555-5555-555555555014','33333333-3333-3333-3333-333333333003','44444444-4444-4444-4444-444444444012','MEMBER','11111111-1111-1111-1111-111111111009',now()),
 ('55555555-5555-5555-5555-555555555015','33333333-3333-3333-3333-333333333003','44444444-4444-4444-4444-444444444103','MEMBER','11111111-1111-1111-1111-111111111009',now());
 
--- medicine_inventory
-INSERT INTO medicine_inventory (id, family_id, medicine_name, medicine_type, expiry_date, quantity_stock, unit, min_stock_alert, instruction) VALUES
-('66666666-6666-6666-6666-666666666001','33333333-3333-3333-3333-333333333001','Paracetamol 500mg','Viên nén',current_date+180,20,'viên',3,'Uống sau ăn'),
-('66666666-6666-6666-6666-666666666002','33333333-3333-3333-3333-333333333001','Vitamin C','Viên sủi',current_date+250,10,'ống',2,'Sáng 1 viên'),
-('66666666-6666-6666-6666-666666666003','33333333-3333-3333-3333-333333333001','ORS','Gói',current_date+300,15,'gói',3,'Bù nước'),
-('66666666-6666-6666-6666-666666666004','33333333-3333-3333-3333-333333333002','Ibuprofen 400mg','Viên nén',current_date+200,18,'viên',3,'Sau ăn'),
-('66666666-6666-6666-6666-666666666005','33333333-3333-3333-3333-333333333002','Amoxicillin','Kháng sinh',current_date+120,30,'viên',5,'Theo toa bác sĩ'),
-('66666666-6666-6666-6666-666666666006','33333333-3333-3333-3333-333333333002','Nước muối sinh lý','Dung dịch',current_date+240,8,'chai',2,'Nhỏ mũi'),
-('66666666-6666-6666-6666-666666666007','33333333-3333-3333-3333-333333333003','Omega-3','Viên mềm',current_date+365,25,'viên',5,'Mỗi ngày 1 viên'),
-('66666666-6666-6666-6666-666666666008','33333333-3333-3333-3333-333333333003','Canxi Nano','Viên nang',current_date+320,40,'viên',6,'Sau ăn sáng'),
-('66666666-6666-6666-6666-666666666009','33333333-3333-3333-3333-333333333003','Siro ho','Siro',current_date+150,6,'chai',1,'5ml/lần');
+-- family_medicine_inventory
+INSERT INTO family_medicine_inventory (id, family_id, created_by_user_id, medicine_name, expiry_date, quantity_stock, unit, min_stock_alert, note) VALUES
+('66666666-6666-6666-6666-666666666001','33333333-3333-3333-3333-333333333001','11111111-1111-1111-1111-111111111001','Paracetamol 500mg',current_date+180,20,'viên',3,'Uống sau ăn'),
+('66666666-6666-6666-6666-666666666002','33333333-3333-3333-3333-333333333001','11111111-1111-1111-1111-111111111001','Vitamin C',current_date+250,10,'ống',2,'Sáng 1 viên'),
+('66666666-6666-6666-6666-666666666003','33333333-3333-3333-3333-333333333001','11111111-1111-1111-1111-111111111001','ORS',current_date+300,15,'gói',3,'Bù nước'),
+('66666666-6666-6666-6666-666666666004','33333333-3333-3333-3333-333333333002','11111111-1111-1111-1111-111111111005','Ibuprofen 400mg',current_date+200,18,'viên',3,'Sau ăn'),
+('66666666-6666-6666-6666-666666666005','33333333-3333-3333-3333-333333333002','11111111-1111-1111-1111-111111111005','Amoxicillin',current_date+120,30,'viên',5,'Theo toa bác sĩ'),
+('66666666-6666-6666-6666-666666666006','33333333-3333-3333-3333-333333333002','11111111-1111-1111-1111-111111111005','Nước muối sinh lý',current_date+240,8,'chai',2,'Nhỏ mũi'),
+('66666666-6666-6666-6666-666666666007','33333333-3333-3333-3333-333333333003','11111111-1111-1111-1111-111111111009','Omega-3',current_date+365,25,'viên',5,'Mỗi ngày 1 viên'),
+('66666666-6666-6666-6666-666666666008','33333333-3333-3333-3333-333333333003','11111111-1111-1111-1111-111111111009','Canxi Nano',current_date+320,40,'viên',6,'Sau ăn sáng'),
+('66666666-6666-6666-6666-666666666009','33333333-3333-3333-3333-333333333003','11111111-1111-1111-1111-111111111009','Siro ho',current_date+150,6,'chai',1,'5ml/lần');
 
 -- medical_records, vaccine_history, schedules, logs, growth, activity (nhẹ)
 INSERT INTO medical_records (id, profile_id, created_by, diagnosis_name, diagnosis_slug, doctor_name, hospital_name, visit_date, attachment_urls, created_at)

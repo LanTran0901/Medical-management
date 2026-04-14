@@ -27,6 +27,7 @@ class ProfileAccessContext:
 @dataclass(frozen=True, slots=True)
 class MedicineItemAccessContext:
     item: MedicineInventory
+    family_ids: tuple[UUID, ...]
 
 
 @dataclass(frozen=True, slots=True)

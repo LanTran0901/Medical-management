@@ -18,12 +18,14 @@ from app.infrastructure.repositories.medicine_inventory_repository_pg import (
     MedicineInventoryRepositoryPG,
 )
 from app.infrastructure.repositories.vaccination_repository_pg import VaccinationRepositoryPG
+from app.infrastructure.repositories.family_medicine_inventory_repository_pg import FamilyMedicineInventoryRepositoryPG
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.access_control_usecases import AccessControlService
 from app.application.usecases.medical_records_usecases import MedicalRecordsService
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
 from app.application.usecases.medicine_schedule_usecases import MedicineScheduleService
 from app.application.usecases.vaccination_usecases import VaccinationService
+from app.application.usecases.family_medicine_inventory_usecases import FamilyMedicineInventoryService
 from app.core.config import settings as app_settings
 from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
 from app.application.usecases.family_usecases import FamiliesService
@@ -117,6 +119,16 @@ def get_medicine_inventory_service(
 ) -> MedicineInventoryService:
     return MedicineInventoryService(
         MedicineInventoryRepositoryPG(session),
+        AccessControlService(AccessControlPG(session)),
+        FamilyRepositoryPG(session),
+    )
+
+
+def get_family_medicine_inventory_service(
+    session: AsyncSession = Depends(get_session),
+) -> FamilyMedicineInventoryService:
+    return FamilyMedicineInventoryService(
+        FamilyMedicineInventoryRepositoryPG(session),
         AccessControlService(AccessControlPG(session)),
     )
 

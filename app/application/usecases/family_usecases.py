@@ -11,6 +11,7 @@ from app.core.config import settings as app_settings
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
     CreateProfileInFamilyRequest,
+    CreateProxyHealthPayload,
     FamilyInviteListRequest,
     InviteByPhoneRequest,
     JoinFamilyRequest,
@@ -33,13 +34,43 @@ from app.domain.entities.family import (
     FamilyRole,
     PublicInvitePreview,
 )
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile, ProfileStatus
 from app.domain.services.family_permission import has_at_least
 
 
 def _utc_now():
     return datetime.now(timezone.utc)
+
+
+def _emergency_contacts_from_patch(body: PatchHealthDetailRequest) -> list[EmergencyContactEntry] | None:
+    if "emergency_contacts" not in body.model_fields_set:
+        return None
+    raw = body.emergency_contacts
+    if raw is None:
+        return []
+    return [
+        EmergencyContactEntry(name=x.name, phone=x.phone, relationship=x.relationship) for x in raw
+    ]
+
+
+def _emergency_contacts_from_proxy_payload(hp: CreateProxyHealthPayload) -> list[EmergencyContactEntry] | None:
+    if "emergency_contacts" not in hp.model_fields_set:
+        return None
+    raw = hp.emergency_contacts
+    if raw is None:
+        return []
+    return [
+        EmergencyContactEntry(name=x.name, phone=x.phone, relationship=x.relationship) for x in raw
+    ]
+
+
+def _is_unique_violation(exc: IntegrityError) -> bool:
+    orig = getattr(exc, "orig", None)
+    code = getattr(orig, "pgcode", None)
+    if code is not None:
+        return str(code) == "23505"
+    return "unique" in str(exc).lower()
 
 
 class FamiliesService:
@@ -291,14 +322,19 @@ class FamiliesService:
         if pending is not None:
             raise ConflictError("Pending invite already exists for this target")
 
-        invite = await self._repo.create_family_invite(
-            family_id=fam.id,
-            user_id=target_user_id,
-            phone_number=body.phone_number,
-            role=body.role,
-            relation_role=body.relation_role,
-            invited_by=inviter_user_id,
-        )
+        try:
+            invite = await self._repo.create_family_invite(
+                family_id=fam.id,
+                user_id=target_user_id,
+                phone_number=body.phone_number,
+                role=body.role,
+                relation_role=body.relation_role,
+                invited_by=inviter_user_id,
+            )
+        except IntegrityError as e:
+            if _is_unique_violation(e):
+                raise ConflictError("Pending invite already exists for this target") from e
+            raise
         return {
             "dry_run": False,
             "invite": invite,
@@ -430,11 +466,15 @@ class FamiliesService:
             linked_user_id=None,
         )
         if body.health_profile is not None:
+            hp = body.health_profile
             await self._repo.upsert_health(
                 prof.id,
-                blood_type=body.health_profile.blood_type,
-                chronic_diseases=body.health_profile.chronic_conditions,
-                allergies=body.health_profile.allergies,
+                blood_type=hp.blood_type,
+                chronic_diseases=hp.chronic_conditions,
+                allergies=hp.allergies,
+                drug_allergies=hp.drug_allergies,
+                food_allergies=hp.food_allergies,
+                emergency_contacts=_emergency_contacts_from_proxy_payload(hp),
             )
         return prof, membership
 
@@ -482,31 +522,34 @@ class FamiliesService:
         if await self._repo.get_user_membership_in_family(prev.family_id, user_id) is not None:
             raise ConflictError("Already a member of this family")
 
-        profiles = await self._repo.list_profiles_in_family(prev.family_id)
-        candidate_profiles = [
-            p
-            for p in profiles
-            if p.linked_user_id is None
-            and p.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
+        family = await self._repo.get_family(prev.family_id)
+        if family is None:
+            raise NotFoundError("Family not found")
+
+        rows = await self._repo.list_members_rows(prev.family_id)
+        candidate_members = [
+            (membership, profile)
+            for membership, profile in rows
+            if profile.linked_user_id is None
+            and profile.status in {ProfileStatus.SHADOW.value, ProfileStatus.PENDING_LINK.value}
         ]
-        health_map = await self._repo.list_health_for_profiles([p.id for p in candidate_profiles])
 
         return {
-            "family_id": prev.family_id,
-            "family_name": prev.family_name,
-            "invite_code": prev.invite_code,
-            "profiles": [
+            "id": family.id,
+            "name": family.family_name,
+            "address": family.address,
+            "avatar_url": family.avatar_url,
+            "invite_code": family.invite_code,
+            "created_at": family.created_at,
+            "members": [
                 {
-                    "profile_id": p.id,
-                    "health_profile_id": health_map.get(p.id).profile_id if health_map.get(p.id) else None,
-                    "full_name": p.full_name,
-                    "dob": p.dob,
-                    "gender": p.gender,
-                    "avatar_url": p.avatar_url,
-                    "status": p.status,
-                    "linked_user_id": p.linked_user_id,
+                    "id": profile.id,
+                    "full_name": profile.full_name,
+                    "role": membership.role,
+                    "relation_role": membership.relation_role,
+                    "avatar_url": profile.avatar_url,
                 }
-                for p in candidate_profiles
+                for membership, profile in candidate_members
             ],
         }
 
@@ -679,7 +722,9 @@ class FamiliesService:
             blood_type=body.blood_type,
             chronic_diseases=body.chronic_diseases,
             allergies=body.allergies,
-            emergency_contact=body.emergency_contact,
+            drug_allergies=body.drug_allergies,
+            food_allergies=body.food_allergies,
+            emergency_contacts=_emergency_contacts_from_patch(body),
             notes=body.notes,
         )
 
@@ -752,6 +797,8 @@ class FamiliesService:
             blood_type=body.blood_type,
             chronic_diseases=body.chronic_diseases,
             allergies=body.allergies,
-            emergency_contact=body.emergency_contact,
+            drug_allergies=body.drug_allergies,
+            food_allergies=body.food_allergies,
+            emergency_contacts=_emergency_contacts_from_patch(body),
             notes=body.notes,
         )

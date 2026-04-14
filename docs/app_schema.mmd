@@ -1,0 +1,354 @@
+%% HomeMedAI / Medical-management database schema
+%% Source: app/infrastructure/config/database/postgres/models
+erDiagram
+    USERS {
+        UUID id PK
+        string email UK
+        string phone_number
+        text password_hash
+        string google_id UK
+        user_status status
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    USER_DEVICES {
+        string id PK
+        UUID user_id PK
+        text fcm_token
+        string device_name
+        string platform
+        timestamptz last_active
+    }
+
+    REFRESH_TOKENS {
+        UUID id PK
+        UUID user_id FK
+        string device_id FK
+        text token_hash UK
+        timestamptz expires_at
+        text status
+    }
+
+    PROFILES {
+        UUID id PK
+        UUID owner_user_id FK
+        UUID linked_user_id FK
+        string full_name
+        date dob
+        gender_type gender
+        numeric height_cm
+        numeric weight_kg
+        text address
+        text avatar_url
+        profile_status status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    HEALTH_DETAILS {
+        UUID id PK
+        UUID profile_id FK
+        blood_type_enum blood_type
+        text_array chronic_diseases
+        text_array allergies
+        text_array drug_allergies
+        text_array food_allergies
+        jsonb emergency_contacts "default empty array"
+        text notes
+        timestamptz updated_at
+    }
+
+    HEALTH_METRIC_READINGS {
+        UUID id PK
+        UUID profile_id FK
+        string metric_type
+        timestamptz measured_at
+        int systolic
+        int diastolic
+        int heart_rate
+        numeric weight_kg
+        numeric glucose_mmol_l
+        string status
+        text notes
+        timestamptz created_at
+        timestamptz deleted_at
+    }
+
+    FAMILIES {
+        UUID id PK
+        string family_name
+        text address
+        text avatar_url
+        string invite_code UK
+        UUID created_by FK
+        timestamptz created_at
+    }
+
+    FAMILY_MEMBERSHIPS {
+        UUID id PK
+        UUID family_id FK
+        UUID profile_id FK
+        family_role role
+        string relation_role
+        UUID added_by FK
+        timestamptz created_at
+    }
+
+    FAMILY_INVITES {
+        UUID id PK
+        UUID family_id FK
+        UUID user_id FK
+        string phone_number
+        family_role role
+        string relation_role
+        family_invite_status status
+        UUID invited_by FK
+        timestamptz invited_at
+        timestamptz responded_at
+    }
+
+    FAMILY_PUBLIC_INVITES {
+        UUID id PK
+        UUID family_id FK
+        string invite_code UK
+        timestamptz expires_at
+        family_public_invite_status status
+        UUID created_by FK
+        timestamptz created_at
+        timestamptz consumed_at
+        UUID consumed_by FK
+    }
+
+    MEDICINE_INVENTORY {
+        UUID id PK
+        UUID profile_id FK
+        string medicine_name
+        string medicine_type
+        date expiry_date
+        numeric quantity_stock
+        string unit
+        numeric min_stock_alert
+        text instruction
+        numeric dosage_value
+        string dosage_unit
+        numeric dosage_per_use_value
+        string dosage_per_use_unit
+        text_array use_tags
+        string storage_location
+        int expiry_alert_days_before
+        bool low_stock_alert_enabled
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    MEDICINE_REMINDERS {
+        UUID id PK
+        UUID medicine_inventory_id FK
+        bool enabled
+        date start_date
+        int repeat_every_value
+        string repeat_every_unit
+        int_array active_days
+        string_array times
+        int remind_before_minutes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    FAMILY_MEDICINE_INVENTORY {
+        UUID id PK
+        UUID family_id FK
+        UUID created_by_user_id FK
+        string medicine_name
+        numeric quantity_stock
+        string unit
+        date expiry_date
+        string storage_location
+        text note
+        numeric min_stock_alert
+        bool low_stock_alert_enabled
+        int expiry_alert_days_before
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    MEDICAL_RECORDS {
+        UUID id PK
+        UUID profile_id FK
+        UUID created_by FK
+        string title
+        text diagnosis_name
+        text diagnosis_slug
+        string doctor_name
+        text hospital_name
+        date visit_date
+        text specialty
+        text_array symptoms
+        text test_results
+        text doctor_advice
+        text notes
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+
+    MEDICAL_RECORD_ATTACHMENTS {
+        UUID id PK
+        UUID medical_record_id FK
+        string file_name
+        string file_type
+        text file_url
+        timestamptz created_at
+    }
+
+    FOLLOW_UP_APPOINTMENTS {
+        UUID id PK
+        UUID medical_record_id FK
+        timestamptz appointment_date
+        text purpose
+        text facility_name
+        string doctor_name
+        text notes
+        int remind_before_days
+        bool reminder_enabled
+        timestamptz created_at
+    }
+
+    FOLLOW_UP_REMINDER_ACTIONS {
+        UUID id PK
+        UUID follow_up_appointment_id FK
+        reminder_outcome outcome
+        timestamptz occurred_at
+        UUID user_id FK
+    }
+
+    APPOINTMENT_REMINDERS {
+        UUID id PK
+        UUID profile_id FK
+        appointment_reminder_type type
+        string title
+        string hospital_name "nullable"
+        string department "nullable"
+        timestamptz appointment_at
+        int remind_before_minutes
+        string vaccine_name "nullable, vaccine rows"
+        int dose_number "nullable"
+        int total_doses "nullable"
+        appointment_reminder_status status
+        text note "nullable"
+        UUID follow_up_appointment_id FK "nullable, checkup"
+        UUID vaccination_dose_id FK "nullable, vaccine"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    VACCINATION_RECOMMENDATIONS {
+        UUID id PK
+        string code UK
+        string name
+        string disease_name
+        int total_doses
+        text notes
+        timestamptz created_at
+    }
+
+    USER_VACCINATIONS {
+        UUID id PK
+        UUID profile_id FK
+        UUID recommendation_id FK
+        UUID user_id FK
+        string status
+        timestamptz created_at
+    }
+
+    VACCINATION_DOSES {
+        UUID id PK
+        UUID user_vaccination_id FK
+        int dose_index
+        date administered_at
+        date scheduled_at
+        text location
+        text reaction
+        text proof_url
+        bool reminder_enabled
+        int remind_before_days
+    }
+
+    DISEASES {
+        UUID id PK
+        string title
+        jsonb aliases
+        text summary
+        jsonb content
+        text search_document
+        vector embedding
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    DRUGS {
+        UUID id PK
+        string title
+        jsonb aliases
+        text summary
+        jsonb content
+        text search_document
+        vector embedding
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    VACCINES {
+        UUID id PK
+        string title
+        jsonb aliases
+        text summary
+        jsonb content
+        text search_document
+        vector embedding
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    USERS ||--o{ USER_DEVICES : owns
+    USERS ||--o{ REFRESH_TOKENS : issues
+    USER_DEVICES |o--o{ REFRESH_TOKENS : binds
+
+    USERS ||--o{ PROFILES : owns
+    USERS |o--o{ PROFILES : links_account
+    PROFILES ||--o| HEALTH_DETAILS : has
+    PROFILES ||--o{ HEALTH_METRIC_READINGS : records
+
+    USERS ||--o{ FAMILIES : creates
+    FAMILIES ||--o{ FAMILY_MEMBERSHIPS : has
+    PROFILES ||--o{ FAMILY_MEMBERSHIPS : joins
+    USERS ||--o{ FAMILY_MEMBERSHIPS : adds
+    FAMILIES ||--o{ FAMILY_INVITES : sends
+    USERS |o--o{ FAMILY_INVITES : invited_user
+    USERS ||--o{ FAMILY_INVITES : invited_by
+    FAMILIES ||--o{ FAMILY_PUBLIC_INVITES : has
+    USERS ||--o{ FAMILY_PUBLIC_INVITES : creates
+    USERS |o--o{ FAMILY_PUBLIC_INVITES : consumes
+    FAMILIES ||--o{ FAMILY_MEDICINE_INVENTORY : stores
+    USERS |o--o{ FAMILY_MEDICINE_INVENTORY : created_by
+
+    PROFILES |o--o{ MEDICINE_INVENTORY : assigned_to
+    MEDICINE_INVENTORY ||--o| MEDICINE_REMINDERS : schedules
+
+    PROFILES ||--o{ MEDICAL_RECORDS : owns
+    USERS ||--o{ MEDICAL_RECORDS : creates
+    MEDICAL_RECORDS ||--o{ MEDICAL_RECORD_ATTACHMENTS : has
+    MEDICAL_RECORDS ||--o{ FOLLOW_UP_APPOINTMENTS : schedules
+    FOLLOW_UP_APPOINTMENTS ||--o{ FOLLOW_UP_REMINDER_ACTIONS : logs
+    USERS |o--o{ FOLLOW_UP_REMINDER_ACTIONS : performs
+
+    PROFILES ||--o{ APPOINTMENT_REMINDERS : reminds
+    FOLLOW_UP_APPOINTMENTS |o--o{ APPOINTMENT_REMINDERS : optional_link
+    VACCINATION_DOSES |o--o{ APPOINTMENT_REMINDERS : optional_link
+
+    PROFILES ||--o{ USER_VACCINATIONS : tracks
+    VACCINATION_RECOMMENDATIONS ||--o{ USER_VACCINATIONS : recommends
+    USERS |o--o{ USER_VACCINATIONS : records
+    USER_VACCINATIONS ||--o{ VACCINATION_DOSES : has
