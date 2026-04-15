@@ -1,20 +1,20 @@
-"""recover missing revision
+"""recover missing revision bridge
 
-Revision ID: 20260409_1400
-Revises: 20260315_203000
-Create Date: 2026-04-09 14:00:00.000000
+Revision ID: 20260410_0900
+Revises: 20260409_1400
+Create Date: 2026-04-10 09:00:00.000000
 
 This migration intentionally keeps schema unchanged.
-It restores a missing revision node so environments that were
-already stamped to 20260409_1400 can migrate normally again.
+It restores the post-`20260409_1400` bridge node that the notification branch
+expected, without reusing an existing revision identifier.
 """
 
 from __future__ import annotations
 
 
 # revision identifiers, used by Alembic.
-revision = "20260409_1400"
-down_revision = "20260405_1000"
+revision = "20260410_0900"
+down_revision = "20260409_1400"
 branch_labels = None
 depends_on = None
 
