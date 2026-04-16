@@ -41,6 +41,32 @@ INVITE_CODE_LENGTH = 8
 INVITE_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
+def _parse_emergency_contacts_raw(data: list | None) -> list[EmergencyContactEntry]:
+    """Parse JSONB emergency_contacts array from database to entity list."""
+    if not data:
+        return []
+    try:
+        return [
+            EmergencyContactEntry(
+                name=item.get("name"),
+                phone=item.get("phone"),
+                relationship=item.get("relationship"),
+            )
+            for item in data
+            if isinstance(item, dict)
+        ]
+    except (TypeError, AttributeError):
+        return []
+
+
+def _dump_emergency_contacts(contacts: list[EmergencyContactEntry]) -> list[dict]:
+    """Convert emergency_contacts entity list to JSONB-compatible format."""
+    return [
+        {"name": c.name, "phone": c.phone, "relationship": c.relationship}
+        for c in contacts
+    ]
+
+
 class FamilyRepositoryPG(FamilyRepositoryPort):
     """PostgreSQL implementation for families / profiles / health_details."""
 

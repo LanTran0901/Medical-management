@@ -83,6 +83,10 @@ class ProfileModel(Base):
         nullable=False,
         server_default=sa.text("now()"),
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class HealthMetricReadingModel(Base):
