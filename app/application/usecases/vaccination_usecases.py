@@ -25,6 +25,35 @@ from app.domain.entities.vaccination import (
     VaccinationDose,
     VaccinationRecommendation,
 )
+from app.domain.remind_before import RemindBeforeUnit
+
+
+def _finalize_dose_reminder(
+    reminder_enabled: bool,
+    value: int | None,
+    unit: str | None,
+) -> tuple[int | None, str | None]:
+    if not reminder_enabled:
+        return None, None
+    if value is None or unit is None:
+        raise ConflictError(
+            "remind_before_value and remind_before_unit are required when reminder_enabled is true"
+        )
+    if value < 1:
+        raise ConflictError("remind_before_value must be at least 1")
+    try:
+        u = RemindBeforeUnit(str(unit).upper())
+    except ValueError as exc:
+        raise ConflictError(f"Invalid remind_before_unit: {unit!r}") from exc
+    return value, u.value
+
+
+def _patch_remind_before_unit_to_str(raw: object) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, RemindBeforeUnit):
+        return raw.value
+    return str(raw)
 
 
 def _derive_dose_fields(
@@ -73,7 +102,8 @@ class VaccinationService:
             reaction=d.reaction,
             proof_url=d.proof_url,
             reminder_enabled=d.reminder_enabled,
-            remind_before_days=d.remind_before_days,
+            remind_before_value=d.remind_before_value,
+            remind_before_unit=RemindBeforeUnit(d.remind_before_unit) if d.remind_before_unit else None,
             dose_status=cast(DoseStatusLiteral, status),
             is_overdue=overdue,
         )
@@ -248,6 +278,11 @@ class VaccinationService:
             raise NotFoundError("User vaccination not found")
         if await self._vac.dose_index_exists(user_vaccination_id, body.dose_index):
             raise ConflictError(f"Dose index {body.dose_index} already exists for this subscription.")
+        rb_value, rb_unit = _finalize_dose_reminder(
+            body.reminder_enabled,
+            body.remind_before_value,
+            body.remind_before_unit.value if body.remind_before_unit else None,
+        )
         d = await self._vac.create_dose(
             user_vaccination_id=user_vaccination_id,
             dose_index=body.dose_index,
@@ -257,7 +292,8 @@ class VaccinationService:
             reaction=body.reaction,
             proof_url=body.proof_url,
             reminder_enabled=body.reminder_enabled,
-            remind_before_days=body.remind_before_days,
+            remind_before_value=rb_value,
+            remind_before_unit=rb_unit,
         )
         return self._to_dose_response(d, date.today())
 
@@ -270,6 +306,11 @@ class VaccinationService:
         await self._access.require_user_vaccination_write(user_vaccination_id, user_id)
         if await self._vac.dose_index_exists(user_vaccination_id, body.dose_index):
             raise ConflictError(f"Dose index {body.dose_index} already exists for this subscription.")
+        rb_value, rb_unit = _finalize_dose_reminder(
+            body.reminder_enabled,
+            body.remind_before_value,
+            body.remind_before_unit.value if body.remind_before_unit else None,
+        )
         d = await self._vac.create_dose(
             user_vaccination_id=user_vaccination_id,
             dose_index=body.dose_index,
@@ -279,7 +320,8 @@ class VaccinationService:
             reaction=body.reaction,
             proof_url=body.proof_url,
             reminder_enabled=body.reminder_enabled,
-            remind_before_days=body.remind_before_days,
+            remind_before_value=rb_value,
+            remind_before_unit=rb_unit,
         )
         return self._to_dose_response(d, date.today())
 
@@ -301,7 +343,8 @@ class VaccinationService:
         reaction = context.dose.reaction
         proof_url = context.dose.proof_url
         reminder_enabled = context.dose.reminder_enabled
-        remind_before_days = context.dose.remind_before_days
+        remind_before_value = context.dose.remind_before_value
+        remind_before_unit = context.dose.remind_before_unit
         if "administered_at" in patch:
             administered_at = patch["administered_at"]
         if "scheduled_at" in patch:
@@ -314,8 +357,11 @@ class VaccinationService:
             proof_url = patch["proof_url"]
         if "reminder_enabled" in patch:
             reminder_enabled = patch["reminder_enabled"]
-        if "remind_before_days" in patch:
-            remind_before_days = patch["remind_before_days"]
+        if "remind_before_value" in patch:
+            remind_before_value = patch["remind_before_value"]
+        if "remind_before_unit" in patch:
+            remind_before_unit = _patch_remind_before_unit_to_str(patch["remind_before_unit"])
+        rb_value, rb_unit = _finalize_dose_reminder(reminder_enabled, remind_before_value, remind_before_unit)
         d = await self._vac.update_dose(
             dose_id,
             administered_at=administered_at,
@@ -324,7 +370,8 @@ class VaccinationService:
             reaction=reaction,
             proof_url=proof_url,
             reminder_enabled=reminder_enabled,
-            remind_before_days=remind_before_days,
+            remind_before_value=rb_value,
+            remind_before_unit=rb_unit,
         )
         if d is None:
             raise NotFoundError("Dose not found")
@@ -344,7 +391,8 @@ class VaccinationService:
         reaction = context.dose.reaction
         proof_url = context.dose.proof_url
         reminder_enabled = context.dose.reminder_enabled
-        remind_before_days = context.dose.remind_before_days
+        remind_before_value = context.dose.remind_before_value
+        remind_before_unit = context.dose.remind_before_unit
         if "administered_at" in patch:
             administered_at = patch["administered_at"]
         if "scheduled_at" in patch:
@@ -357,8 +405,11 @@ class VaccinationService:
             proof_url = patch["proof_url"]
         if "reminder_enabled" in patch:
             reminder_enabled = patch["reminder_enabled"]
-        if "remind_before_days" in patch:
-            remind_before_days = patch["remind_before_days"]
+        if "remind_before_value" in patch:
+            remind_before_value = patch["remind_before_value"]
+        if "remind_before_unit" in patch:
+            remind_before_unit = _patch_remind_before_unit_to_str(patch["remind_before_unit"])
+        rb_value, rb_unit = _finalize_dose_reminder(reminder_enabled, remind_before_value, remind_before_unit)
         d = await self._vac.update_dose(
             dose_id,
             administered_at=administered_at,
@@ -367,7 +418,8 @@ class VaccinationService:
             reaction=reaction,
             proof_url=proof_url,
             reminder_enabled=reminder_enabled,
-            remind_before_days=remind_before_days,
+            remind_before_value=rb_value,
+            remind_before_unit=rb_unit,
         )
         if d is None:
             raise NotFoundError("Dose not found")

@@ -18,6 +18,15 @@ reminder_outcome_pg = ENUM(
     create_type=False,
 )
 
+follow_up_remind_before_unit_pg = ENUM(
+    "MINUTES",
+    "HOURS",
+    "DAYS",
+    "WEEKS",
+    name="follow_up_remind_before_unit",
+    create_type=False,
+)
+
 
 class MedicalRecordModel(Base):
     __tablename__ = "medical_records"
@@ -112,10 +121,10 @@ class FollowUpAppointmentModel(Base):
     facility_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     doctor_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    remind_before_days: Mapped[int] = mapped_column(
-        sa.Integer,
-        nullable=False,
-        server_default=sa.text("1"),
+    remind_before_value: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    remind_before_unit: Mapped[str | None] = mapped_column(
+        follow_up_remind_before_unit_pg,
+        nullable=True,
     )
     reminder_enabled: Mapped[bool] = mapped_column(
         sa.Boolean,
@@ -126,6 +135,15 @@ class FollowUpAppointmentModel(Base):
         sa.DateTime(timezone=True),
         nullable=False,
         server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "(NOT reminder_enabled AND remind_before_value IS NULL AND remind_before_unit IS NULL) OR "
+            "(reminder_enabled AND remind_before_value IS NOT NULL AND remind_before_unit IS NOT NULL "
+            "AND remind_before_value > 0)",
+            name="ck_follow_up_appt_reminder_offset",
+        ),
     )
 
 

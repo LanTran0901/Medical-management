@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.medicine_inventory_port import MedicineInventoryRepositoryPort
 from app.domain.entities.medicine_inventory import MedicineInventory
+from app.domain.entities.medicine_reminder import MedicineReminder
 from app.infrastructure.config.database.postgres.models.medicine_inventory_model import (
     FamilyMedicineInventoryModel,
     MedicineInventoryModel,
+    MedicineReminderModel,
 )
 from app.infrastructure.config.database.postgres.models.family_models import FamilyMembershipModel
 
@@ -87,6 +89,42 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
         elif alert == "expiring":
             rows = [m for m in rows if _alert_flags(m, today)[1] or _alert_flags(m, today)[2]]
         return [self._to_entity(row) for row in rows]
+
+    async def list_by_profile_id(self, profile_id: UUID) -> list[MedicineInventory]:
+        stmt = (
+            select(MedicineInventoryModel)
+            .where(MedicineInventoryModel.profile_id == profile_id)
+            .order_by(MedicineInventoryModel.medicine_name)
+        )
+        r = await self.session.execute(stmt)
+        rows = list(r.scalars().all())
+        return [self._to_entity(row) for row in rows]
+
+    @staticmethod
+    def _reminder_to_entity(model: MedicineReminderModel) -> MedicineReminder:
+        return MedicineReminder(
+            id=model.id,
+            medicine_inventory_id=model.medicine_inventory_id,
+            enabled=model.enabled,
+            start_date=model.start_date,
+            repeat_every_value=model.repeat_every_value,
+            repeat_every_unit=model.repeat_every_unit,
+            active_days=list(model.active_days) if model.active_days is not None else [],
+            times=list(model.times) if model.times is not None else [],
+            remind_before_minutes=model.remind_before_minutes,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
+
+    async def list_medicine_reminders_by_inventory_ids(
+        self, inventory_ids: list[UUID]
+    ) -> dict[UUID, MedicineReminder]:
+        if not inventory_ids:
+            return {}
+        stmt = select(MedicineReminderModel).where(MedicineReminderModel.medicine_inventory_id.in_(inventory_ids))
+        r = await self.session.execute(stmt)
+        rows = list(r.scalars().all())
+        return {row.medicine_inventory_id: self._reminder_to_entity(row) for row in rows}
 
     async def get_by_id(self, item_id: UUID) -> MedicineInventory | None:
         model = await self.session.get(MedicineInventoryModel, item_id)
