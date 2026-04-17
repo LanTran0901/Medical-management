@@ -42,6 +42,117 @@ class MedicineScheduleService:
         self._session = session
         self._access = access
 
+    async def _fallback_profile_id_for_family(self, family_id: UUID, user_id: UUID) -> UUID | None:
+        row = await self._session.execute(
+            text(
+                """
+                SELECT profile_id
+                FROM family_memberships
+                WHERE family_id = :fid AND user_id = :uid
+                ORDER BY created_at ASC
+                LIMIT 1
+                """
+            ),
+            {"fid": family_id, "uid": user_id},
+        )
+        return row.scalar_one_or_none()
+
+    async def _ensure_medicine_inventory_mirror(
+        self,
+        item_id: UUID,
+        user_id: UUID,
+        *,
+        profile_id_hint: UUID | None = None,
+    ) -> None:
+        family_row = await self._session.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    family_id,
+                    medicine_name,
+                    quantity_stock,
+                    unit,
+                    expiry_date,
+                    storage_location,
+                    note,
+                    min_stock_alert,
+                    low_stock_alert_enabled,
+                    expiry_alert_days_before
+                FROM family_medicine_inventory
+                WHERE id = :item_id
+                LIMIT 1
+                """
+            ),
+            {"item_id": item_id},
+        )
+        family_item = family_row.mappings().one_or_none()
+        if family_item is None:
+            return
+
+        family_id: UUID = family_item["family_id"]
+        await self._access.require_family_admin(family_id, user_id)
+
+        profile_id = profile_id_hint or await self._fallback_profile_id_for_family(
+            family_id,
+            user_id,
+        )
+
+        await self._session.execute(
+            text(
+                """
+                INSERT INTO medicine_inventory (
+                    id,
+                    profile_id,
+                    medicine_name,
+                    medicine_type,
+                    expiry_date,
+                    quantity_stock,
+                    unit,
+                    min_stock_alert,
+                    instruction,
+                    storage_location,
+                    expiry_alert_days_before,
+                    low_stock_alert_enabled,
+                    use_tags
+                )
+                VALUES (
+                    :id,
+                    :profile_id,
+                    :medicine_name,
+                    NULL,
+                    :expiry_date,
+                    :quantity_stock,
+                    :unit,
+                    :min_stock_alert,
+                    :instruction,
+                    :storage_location,
+                    :expiry_alert_days_before,
+                    :low_stock_alert_enabled,
+                    '{}'::text[]
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {
+                "id": family_item["id"],
+                "profile_id": profile_id,
+                "medicine_name": family_item["medicine_name"],
+                "expiry_date": family_item["expiry_date"],
+                "quantity_stock": family_item["quantity_stock"],
+                "unit": family_item["unit"],
+                "min_stock_alert": family_item["min_stock_alert"],
+                "instruction": family_item["note"],
+                "storage_location": family_item["storage_location"],
+                "expiry_alert_days_before": family_item[
+                    "expiry_alert_days_before"
+                ],
+                "low_stock_alert_enabled": family_item[
+                    "low_stock_alert_enabled"
+                ],
+            },
+        )
+
     async def _profile_in_family(self, profile_id: UUID, family_id: UUID) -> bool:
         r = await self._session.execute(
             text(
@@ -60,7 +171,11 @@ class MedicineScheduleService:
         item_id: UUID,
         user_id: UUID,
     ) -> list[MedicineScheduleResponse]:
-        await self._access.require_medicine_item_write(item_id, user_id)
+        try:
+            await self._access.require_medicine_item_write(item_id, user_id)
+        except NotFoundError:
+            await self._ensure_medicine_inventory_mirror(item_id, user_id)
+            await self._access.require_medicine_item_write(item_id, user_id)
 
         q = text(
             """
@@ -101,7 +216,15 @@ class MedicineScheduleService:
         user_id: UUID,
         body: CreateMedicineScheduleRequest,
     ) -> MedicineScheduleResponse:
-        ctx = await self._access.require_medicine_item_write(item_id, user_id)
+        try:
+            ctx = await self._access.require_medicine_item_write(item_id, user_id)
+        except NotFoundError:
+            await self._ensure_medicine_inventory_mirror(
+                item_id,
+                user_id,
+                profile_id_hint=body.profile_id,
+            )
+            ctx = await self._access.require_medicine_item_write(item_id, user_id)
         if not ctx.family_ids:
             raise ForbiddenError("Medicine item is not linked to a family")
         family_id = ctx.family_ids[0]

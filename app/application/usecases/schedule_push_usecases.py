@@ -74,6 +74,15 @@ class LogScheduleComplianceUseCase:
             },
         )
 
+        logger.info(
+            "Schedule compliance: schedule_id=%s user_id=%s outcome=%s source=%s occurrence_date=%s",
+            schedule_id,
+            user_id,
+            request.outcome,
+            request.source,
+            occurrence_date,
+        )
+
         # If user already marked the occurrence, any pending snooze for today is obsolete.
         await self.session.execute(
             text(
@@ -224,6 +233,33 @@ class ProcessDueSchedulePushesUseCase:
             user_ids.append(linked_user_id)
         return user_ids
 
+    async def _collect_recipient_user_ids(self, row: dict) -> list[UUID]:
+        base_user_ids = self._extract_user_ids(row)
+        profile_id = row.get("profile_id")
+        if profile_id is None:
+            return base_user_ids
+
+        family_rows = await self.session.execute(
+            text(
+                """
+                SELECT DISTINCT fm2.user_id
+                FROM family_memberships fm1
+                JOIN family_memberships fm2 ON fm2.family_id = fm1.family_id
+                WHERE fm1.profile_id = :profile_id
+                  AND fm2.user_id IS NOT NULL
+                """
+            ),
+            {"profile_id": profile_id},
+        )
+
+        merged: list[UUID] = []
+        seen: set[UUID] = set()
+        for uid in base_user_ids + [r[0] for r in family_rows.fetchall() if r[0] is not None]:
+            if uid not in seen:
+                seen.add(uid)
+                merged.append(uid)
+        return merged
+
     async def _collect_fcm_tokens(self, user_ids: list[UUID]) -> list[str]:
         fcm_tokens: list[str] = []
         seen: set[str] = set()
@@ -241,6 +277,13 @@ class ProcessDueSchedulePushesUseCase:
                 if tok and tok not in seen:
                     seen.add(tok)
                     fcm_tokens.append(tok)
+
+        expo_tokens = [
+            tok for tok in fcm_tokens if tok.startswith("ExponentPushToken[")
+        ]
+        if expo_tokens:
+            return expo_tokens
+
         return fcm_tokens
 
     async def _clear_failed_tokens(self, failed_tokens: Sequence[str]) -> None:
@@ -265,6 +308,8 @@ class ProcessDueSchedulePushesUseCase:
         body: str,
         data: dict[str, str],
         channel: str,
+        *,
+        notification_category_id: str | None = None,
     ) -> tuple[int, int, list[str]]:
         return self._push.send_to_multiple(
             tokens,
@@ -273,6 +318,7 @@ class ProcessDueSchedulePushesUseCase:
             data,
             android_channel_id=channel,
             android_sound="default",
+            notification_category_id=notification_category_id,
         )
 
     @staticmethod
@@ -283,8 +329,25 @@ class ProcessDueSchedulePushesUseCase:
         except Exception:
             return ZoneInfo("UTC")
 
+    @staticmethod
+    def _minute_of_day(hour: int, minute: int) -> int:
+        return hour * 60 + minute
+
+    @classmethod
+    def _is_due_in_grace_window(
+        cls,
+        remind_time: time,
+        now_local: datetime,
+        grace_minutes: int,
+    ) -> bool:
+        now_minute = cls._minute_of_day(now_local.hour, now_local.minute)
+        remind_minute = cls._minute_of_day(remind_time.hour, remind_time.minute)
+        diff = now_minute - remind_minute
+        return 0 <= diff <= grace_minutes
+
     async def execute(self) -> ScheduleDispatchResponse:
         channel = settings.fcm_android_channel_schedule
+        grace_minutes = settings.schedule_dispatch_due_grace_minutes
         now_utc = datetime.now(timezone.utc)
 
         rows_sql = text(
@@ -294,7 +357,10 @@ class ProcessDueSchedulePushesUseCase:
                 s.remind_time AS remind_time,
                 COALESCE(s.remind_tz, 'UTC') AS remind_tz,
                 s.title AS title,
+                s.dosage_per_time AS dosage_per_time,
                 mi.medicine_name AS medicine_name,
+                mi.unit AS medicine_unit,
+                p.id AS profile_id,
                 p.full_name AS profile_name,
                 p.owner_user_id AS owner_user_id,
                 p.linked_user_id AS linked_user_id
@@ -320,7 +386,7 @@ class ProcessDueSchedulePushesUseCase:
                 continue
             tz = self._zone(row.get("remind_tz"))
             now_local = now_utc.astimezone(tz)
-            if rt.hour != now_local.hour or rt.minute != now_local.minute:
+            if not self._is_due_in_grace_window(rt, now_local, grace_minutes):
                 continue
 
             occurrence_date: date = now_local.date()
@@ -355,9 +421,14 @@ class ProcessDueSchedulePushesUseCase:
             profile_name = row.get("profile_name") or "Thành viên"
             med = row.get("medicine_name") or row.get("title") or "Thuốc"
             title = f"Nhắc uống thuốc — {profile_name}"
-            body = str(med)
+            dosage = row.get("dosage_per_time")
+            unit = row.get("medicine_unit") or "viên"
+            if dosage is not None:
+                body = f"{med}: uống {dosage} {unit} lúc {time_slot}."
+            else:
+                body = f"{med}: đến giờ uống thuốc lúc {time_slot}."
 
-            user_ids = self._extract_user_ids(row)
+            user_ids = await self._collect_recipient_user_ids(row)
 
             if not user_ids:
                 errors += 1
@@ -386,6 +457,8 @@ class ProcessDueSchedulePushesUseCase:
                 "occurrence_date": occurrence_date.isoformat(),
                 "time_slot": time_slot,
                 "action": "compliance",
+                "dosage_per_time": str(dosage) if dosage is not None else "",
+                "dosage_unit": str(unit),
             }
 
             try:
@@ -395,6 +468,7 @@ class ProcessDueSchedulePushesUseCase:
                     body,
                     data,
                     channel,
+                    notification_category_id="MEDICINE_REMINDER_ACTIONS",
                 )
                 if failure_count:
                     await self._clear_failed_tokens(failed_tokens)
@@ -405,6 +479,14 @@ class ProcessDueSchedulePushesUseCase:
                         len(device_tokens),
                     )
                 if success_count > 0:
+                    logger.warning(
+                        "Push sent successfully for schedule %s (%s success, %s failed, time_slot=%s, occurrence_date=%s)",
+                        schedule_id,
+                        success_count,
+                        failure_count,
+                        time_slot,
+                        occurrence_date,
+                    )
                     sent += 1
                     continue
                 await self.session.execute(
@@ -431,7 +513,10 @@ class ProcessDueSchedulePushesUseCase:
                     o.occurrence_date AS occurrence_date,
                     o.snooze_until_utc AS snooze_until_utc,
                     s.title AS title,
+                    s.dosage_per_time AS dosage_per_time,
                     mi.medicine_name AS medicine_name,
+                    mi.unit AS medicine_unit,
+                    p.id AS profile_id,
                     p.full_name AS profile_name,
                     p.owner_user_id AS owner_user_id,
                     p.linked_user_id AS linked_user_id
@@ -498,8 +583,13 @@ class ProcessDueSchedulePushesUseCase:
             profile_name = row.get("profile_name") or "Thành viên"
             med = row.get("medicine_name") or row.get("title") or "Thuốc"
             title = f"Nhắc uống thuốc — {profile_name}"
-            body = str(med)
-            user_ids = self._extract_user_ids(row)
+            dosage = row.get("dosage_per_time")
+            unit = row.get("medicine_unit") or "viên"
+            if dosage is not None:
+                body = f"{med}: uống {dosage} {unit} ngay bây giờ."
+            else:
+                body = f"{med}: nhắc lại lịch uống thuốc."
+            user_ids = await self._collect_recipient_user_ids(row)
 
             if not user_ids:
                 errors += 1
@@ -529,6 +619,8 @@ class ProcessDueSchedulePushesUseCase:
                 "occurrence_date": str(override_occurrence_date),
                 "time_slot": snooze_time_slot,
                 "action": "compliance",
+                "dosage_per_time": str(dosage) if dosage is not None else "",
+                "dosage_unit": str(unit),
             }
 
             try:
@@ -538,6 +630,7 @@ class ProcessDueSchedulePushesUseCase:
                     body,
                     data,
                     channel,
+                    notification_category_id="MEDICINE_REMINDER_ACTIONS",
                 )
                 if failure_count:
                     await self._clear_failed_tokens(failed_tokens)
@@ -554,6 +647,14 @@ class ProcessDueSchedulePushesUseCase:
                     )
                     errors += 1
                     continue
+                logger.warning(
+                    "Push sent successfully for snooze schedule %s (%s success, %s failed, time_slot=%s, occurrence_date=%s)",
+                    schedule_id,
+                    success_count,
+                    failure_count,
+                    snooze_time_slot,
+                    override_occurrence_date,
+                )
                 await self.session.execute(
                     text(
                         "UPDATE schedule_snooze_overrides SET consumed_at = now() WHERE id = :id"

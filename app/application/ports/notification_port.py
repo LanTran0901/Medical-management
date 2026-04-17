@@ -17,6 +17,7 @@ class NotificationServicePort(ABC):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> str:
         """Send notification to a single device. Returns message ID."""
         raise NotImplementedError
@@ -31,6 +32,7 @@ class NotificationServicePort(ABC):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> tuple[int, int, list[str]]:
         """Send notification to multiple devices.
         Returns (success_count, failure_count, list_of_failed_tokens).

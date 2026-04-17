@@ -56,6 +56,7 @@ class ScheduleComplianceRequest(BaseModel):
     """Record user response to a medicine schedule reminder."""
 
     outcome: Literal["taken", "skipped"]
+    source: Literal["in_app", "notification_action"] = "in_app"
 
 
 class ScheduleComplianceResponse(BaseModel):

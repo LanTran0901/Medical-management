@@ -58,6 +58,16 @@ class Settings(BaseSettings):
             "schedule_dispatch_interval_seconds",
         ),
     )
+    schedule_dispatch_due_grace_minutes: int = Field(
+        default=3,
+        ge=0,
+        le=15,
+        validation_alias=AliasChoices(
+            "SCHEDULE_DISPATCH_DUE_GRACE_MINUTES",
+            "schedule_dispatch_due_grace_minutes",
+        ),
+        description="Allow dispatching a reminder if it is due within the last N minutes to avoid missing exact-minute ticks.",
+    )
     fcm_android_channel_schedule: str = Field(
         default="medicine_reminders",
         validation_alias=AliasChoices(

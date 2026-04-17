@@ -27,6 +27,9 @@ def send_expo_push_batch(
     data: Optional[dict[str, str]] = None,
     *,
     access_token: Optional[str] = None,
+    android_channel_id: Optional[str] = None,
+    android_sound: Optional[str] = None,
+    notification_category_id: Optional[str] = None,
 ) -> tuple[int, int, list[str]]:
     """Send to Expo Push API. Returns (success_count, failure_count, failed_tokens)."""
     if not tokens:
@@ -39,8 +42,12 @@ def send_expo_push_batch(
             "to": to,
             "title": title,
             "body": body,
-            "sound": "default",
+            "sound": android_sound if android_sound is not None else "default",
         }
+        if android_channel_id:
+            msg["channelId"] = android_channel_id
+        if notification_category_id:
+            msg["categoryId"] = notification_category_id
         if str_data:
             msg["data"] = str_data
         payload.append(msg)

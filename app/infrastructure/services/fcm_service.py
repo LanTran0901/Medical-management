@@ -26,12 +26,16 @@ class FCMService(NotificationServicePort):
         *,
         android_channel_id: Optional[str],
         android_sound: Optional[str],
+        notification_category_id: Optional[str],
     ):
         msg = self._messaging
         notification = msg.Notification(title=title, body=body)
+        payload_data = dict(data or {})
+        if notification_category_id:
+            payload_data.setdefault("categoryId", notification_category_id)
         kwargs: dict = {
             "notification": notification,
-            "data": data,
+            "data": payload_data,
             "token": token,
         }
         if android_channel_id:
@@ -43,6 +47,7 @@ class FCMService(NotificationServicePort):
                     body=body,
                     channel_id=android_channel_id,
                     sound=sound,
+                    click_action=notification_category_id,
                 ),
             )
         return msg.Message(**kwargs)
@@ -56,6 +61,7 @@ class FCMService(NotificationServicePort):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> str:
         message = self._build_message(
             token,
@@ -64,6 +70,7 @@ class FCMService(NotificationServicePort):
             data,
             android_channel_id=android_channel_id,
             android_sound=android_sound,
+            notification_category_id=notification_category_id,
         )
         response = self._messaging.send(message)
         logger.info("FCM sent to device, message_id=%s", response)
@@ -78,6 +85,7 @@ class FCMService(NotificationServicePort):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> tuple[int, int, list[str]]:
         messages = [
             self._build_message(
@@ -87,6 +95,7 @@ class FCMService(NotificationServicePort):
                 data,
                 android_channel_id=android_channel_id,
                 android_sound=android_sound,
+                notification_category_id=notification_category_id,
             )
             for t in tokens
         ]

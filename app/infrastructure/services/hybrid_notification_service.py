@@ -37,6 +37,7 @@ class HybridNotificationService(NotificationServicePort):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> str:
         if is_expo_push_token(token):
             failed = send_expo_push_batch(
@@ -45,6 +46,9 @@ class HybridNotificationService(NotificationServicePort):
                 body,
                 data,
                 access_token=settings.expo_push_access_token,
+                android_channel_id=android_channel_id,
+                android_sound=android_sound,
+                notification_category_id=notification_category_id,
             )[2]
             if failed:
                 raise RuntimeError("Expo Push failed for token")
@@ -56,6 +60,7 @@ class HybridNotificationService(NotificationServicePort):
             data,
             android_channel_id=android_channel_id,
             android_sound=android_sound,
+            notification_category_id=notification_category_id,
         )
 
     def send_to_multiple(
@@ -67,6 +72,7 @@ class HybridNotificationService(NotificationServicePort):
         *,
         android_channel_id: Optional[str] = None,
         android_sound: Optional[str] = None,
+        notification_category_id: Optional[str] = None,
     ) -> tuple[int, int, list[str]]:
         expo_tokens = [t for t in tokens if is_expo_push_token(t)]
         fcm_tokens = [t for t in tokens if not is_expo_push_token(t)]
@@ -82,6 +88,9 @@ class HybridNotificationService(NotificationServicePort):
                 body,
                 data,
                 access_token=settings.expo_push_access_token,
+                android_channel_id=android_channel_id,
+                android_sound=android_sound,
+                notification_category_id=notification_category_id,
             )
             success_total += s
             failure_total += f
@@ -95,6 +104,7 @@ class HybridNotificationService(NotificationServicePort):
                 data,
                 android_channel_id=android_channel_id,
                 android_sound=android_sound,
+                notification_category_id=notification_category_id,
             )
             success_total += s
             failure_total += f
