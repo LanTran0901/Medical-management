@@ -30,6 +30,11 @@ def _handle_error(exc: Exception) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.message or "Forbidden") from exc
     if isinstance(exc, ConflictError):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message or "Conflict") from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
 
 # --- Schedules: flat paths (align with /medicine-inventory/{item_id}); no /families nesting ---

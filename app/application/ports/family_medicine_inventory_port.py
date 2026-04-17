@@ -16,6 +16,7 @@ class FamilyMedicineInventoryRepositoryPort:
         *,
         family_id: UUID,
         created_by_user_id: UUID,
+        profile_id: UUID,
         medicine_name: str,
         quantity_stock: Decimal,
         unit: str,

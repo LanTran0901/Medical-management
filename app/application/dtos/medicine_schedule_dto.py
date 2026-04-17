@@ -9,10 +9,15 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class CreateMedicineScheduleRequest(BaseModel):
-    """Create one MEDICINE schedule row. `remind_time` is wall-clock UTC (matches dispatcher)."""
+    """Create one MEDICINE schedule row. `remind_time` is wall-clock in `remind_tz` (IANA)."""
 
     profile_id: UUID
-    remind_time: str = Field(..., description="HH:MM in 24h, UTC")
+    remind_time: str = Field(..., description="HH:MM in 24h, local to remind_tz")
+    remind_tz: str = Field(
+        default="UTC",
+        max_length=64,
+        description="IANA timezone (e.g. Asia/Ho_Chi_Minh)",
+    )
     title: str | None = Field(None, max_length=500)
     dosage_per_time: Decimal | None = None
     rrule: str | None = Field(None, description="Default FREQ=DAILY if omitted")
@@ -31,7 +36,8 @@ class CreateMedicineScheduleRequest(BaseModel):
 
 class PatchMedicineScheduleRequest(BaseModel):
     status: Literal["ACTIVE", "PAUSED", "COMPLETED"] | None = None
-    remind_time: str | None = Field(None, description="HH:MM UTC")
+    remind_time: str | None = Field(None, description="HH:MM in remind_tz")
+    remind_tz: str | None = Field(None, max_length=64)
     title: str | None = Field(None, max_length=500)
     dosage_per_time: Decimal | None = None
     rrule: str | None = None
@@ -57,6 +63,7 @@ class MedicineScheduleResponse(BaseModel):
     title: str | None
     category: str
     remind_time: str | None
+    remind_tz: str = "UTC"
     dosage_per_time: str | None
     rrule: str | None
     status: str

@@ -32,34 +32,34 @@ class SendNotificationToUserUseCase:
     ) -> NotificationResponse:
         devices = await self.auth_repository.get_devices_by_user_id(sender_user_id)
 
-        fcm_tokens = [d.fcm_token for d in devices if d.fcm_token]
+        push_tokens = [d.fcm_token for d in devices if d.fcm_token]
 
-        if not fcm_tokens:
+        if not push_tokens:
             return NotificationResponse(
                 success=False,
-                message="User has no devices with FCM token registered.",
+                message="User has no devices with push token registered.",
             )
 
         # Add target_user_id to data payload for frontend routing
         payload_data = request.data or {}
         payload_data["target_user_id"] = str(sender_user_id)
 
-        if len(fcm_tokens) == 1:
+        if len(push_tokens) == 1:
             try:
                 self.notification_service.send_to_device(
-                    fcm_tokens[0], request.title, request.body, payload_data
+                    push_tokens[0], request.title, request.body, payload_data
                 )
                 return NotificationResponse(success=True, message="Notification sent.")
             except Exception as e:
                 return NotificationResponse(
                     success=False,
                     message=f"Failed to send: {str(e)}",
-                    failed_tokens=fcm_tokens,
+                    failed_tokens=push_tokens,
                 )
 
         success_count, failure_count, failed_tokens = (
             self.notification_service.send_to_multiple(
-                fcm_tokens, request.title, request.body, payload_data
+                push_tokens, request.title, request.body, payload_data
             )
         )
 
@@ -113,12 +113,12 @@ class ListNotificationsUseCase:
             SELECT
                 s.id AS schedule_id,
                 s.category::text AS category,
-                                s.status::text AS lifecycle_status,
-                                latest_log.status AS occurrence_status,
+                s.status::text AS lifecycle_status,
+                latest_log.status AS occurrence_status,
                 s.title AS title,
                 s.remind_time AS remind_time,
                 s.dosage_per_time AS dosage_per_time,
-                                so.snooze_until_utc AS snoozed_until,
+                so.snooze_until_utc AS snoozed_until,
                 mi.medicine_name AS medicine_name,
                 p.id AS profile_id,
                 p.full_name AS profile_name,
@@ -126,24 +126,31 @@ class ListNotificationsUseCase:
             FROM schedules s
             JOIN profiles p ON p.id = s.profile_id
             LEFT JOIN medicine_inventory mi ON mi.id = s.medicine_id
-            LEFT JOIN families f ON f.id = mi.family_id
-                        LEFT JOIN LATERAL (
-                                SELECT sl.status
-                                FROM schedule_logs sl
-                                WHERE sl.schedule_id = s.id
-                                    AND (sl.action_time AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
-                                ORDER BY sl.action_time DESC
-                                LIMIT 1
-                        ) latest_log ON TRUE
-                        LEFT JOIN LATERAL (
-                                SELECT o.snooze_until_utc
-                                FROM schedule_snooze_overrides o
-                                WHERE o.schedule_id = s.id
-                                    AND o.occurrence_date = (now() AT TIME ZONE 'UTC')::date
-                                    AND o.consumed_at IS NULL
-                                ORDER BY o.created_at DESC
-                                LIMIT 1
-                        ) so ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT fam.family_name
+                FROM family_memberships fm
+                JOIN families fam ON fam.id = fm.family_id
+                WHERE fm.profile_id = p.id
+                ORDER BY fm.created_at ASC
+                LIMIT 1
+            ) f ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT sl.status
+                FROM schedule_logs sl
+                WHERE sl.schedule_id = s.id
+                    AND (sl.action_time AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+                ORDER BY sl.action_time DESC
+                LIMIT 1
+            ) latest_log ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT o.snooze_until_utc
+                FROM schedule_snooze_overrides o
+                WHERE o.schedule_id = s.id
+                    AND o.occurrence_date = (now() AT TIME ZONE 'UTC')::date
+                    AND o.consumed_at IS NULL
+                ORDER BY o.created_at DESC
+                LIMIT 1
+            ) so ON TRUE
             WHERE s.category = 'MEDICINE'
               AND (p.owner_user_id = :user_id OR p.linked_user_id = :user_id)
             ORDER BY s.remind_time NULLS LAST

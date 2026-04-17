@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import time
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,15 @@ def _time_to_hhmm(t: time | None) -> str | None:
     if t is None:
         return None
     return t.strftime("%H:%M")
+
+
+def _validate_remind_tz(name: str | None) -> str:
+    n = (name or "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(n)
+    except Exception as exc:
+        raise ValueError(f"Invalid remind_tz: {n}") from exc
+    return n
 
 
 class MedicineScheduleService:
@@ -56,7 +66,8 @@ class MedicineScheduleService:
             """
             SELECT
                 s.id, s.profile_id, s.medicine_id, s.title, s.category::text,
-                s.remind_time, s.dosage_per_time, s.rrule, s.status::text
+                s.remind_time, COALESCE(s.remind_tz, 'UTC') AS remind_tz,
+                s.dosage_per_time, s.rrule, s.status::text
             FROM schedules s
             WHERE s.medicine_id = :mid AND s.category = 'MEDICINE'
             ORDER BY s.remind_time NULLS LAST
@@ -76,6 +87,7 @@ class MedicineScheduleService:
                     title=row.get("title"),
                     category=row.get("category") or "MEDICINE",
                     remind_time=_time_to_hhmm(rt) if rt is not None else None,
+                    remind_tz=str(row.get("remind_tz") or "UTC"),
                     dosage_per_time=str(dpt) if dpt is not None else None,
                     rrule=row.get("rrule"),
                     status=row.get("status") or "ACTIVE",
@@ -90,12 +102,15 @@ class MedicineScheduleService:
         body: CreateMedicineScheduleRequest,
     ) -> MedicineScheduleResponse:
         ctx = await self._access.require_medicine_item_write(item_id, user_id)
-        family_id = ctx.item.family_id
+        if not ctx.family_ids:
+            raise ForbiddenError("Medicine item is not linked to a family")
+        family_id = ctx.family_ids[0]
 
         if not await self._profile_in_family(body.profile_id, family_id):
             raise ForbiddenError("Profile is not a member of this family")
 
         rt = _parse_hhmm_to_time(body.remind_time)
+        remind_tz = _validate_remind_tz(body.remind_tz)
         rrule = body.rrule if body.rrule else "FREQ=DAILY"
 
         dup = await self._session.execute(
@@ -113,7 +128,7 @@ class MedicineScheduleService:
 
         title = body.title
         if not title:
-            title = f"Nhắc uống thuốc — {rt.strftime('%H:%M')} UTC"
+            title = f"Nhắc uống thuốc — {rt.strftime('%H:%M')}"
 
         schedule_id = uuid.uuid4()
         dosage = body.dosage_per_time
@@ -123,11 +138,11 @@ class MedicineScheduleService:
                 """
                 INSERT INTO schedules (
                     id, profile_id, medicine_id, title, category,
-                    remind_time, dosage_per_time, rrule, status
+                    remind_time, remind_tz, dosage_per_time, rrule, status
                 )
                 VALUES (
                     :id, :profile_id, :medicine_id, :title, 'MEDICINE',
-                    :remind_time, :dosage_per_time, :rrule, 'ACTIVE'
+                    :remind_time, :remind_tz, :dosage_per_time, :rrule, 'ACTIVE'
                 )
                 """
             ),
@@ -137,6 +152,7 @@ class MedicineScheduleService:
                 "medicine_id": item_id,
                 "title": title,
                 "remind_time": rt,
+                "remind_tz": remind_tz,
                 "dosage_per_time": dosage,
                 "rrule": rrule,
             },
@@ -159,6 +175,7 @@ class MedicineScheduleService:
             title=title,
             category="MEDICINE",
             remind_time=body.remind_time,
+            remind_tz=remind_tz,
             dosage_per_time=str(dosage) if dosage is not None else None,
             rrule=rrule,
             status="ACTIVE",
@@ -173,9 +190,9 @@ class MedicineScheduleService:
         scope = await self._session.execute(
             text(
                 """
-                SELECT s.id, s.profile_id, s.medicine_id, mi.family_id
+                SELECT s.id, s.profile_id, s.medicine_id, fm.family_id
                 FROM schedules s
-                JOIN medicine_inventory mi ON mi.id = s.medicine_id
+                JOIN family_memberships fm ON fm.profile_id = s.profile_id
                 WHERE s.id = :sid AND s.category = 'MEDICINE'
                 """
             ),
@@ -200,6 +217,9 @@ class MedicineScheduleService:
         if body.remind_time is not None:
             sets.append("remind_time = :rt")
             params["rt"] = _parse_hhmm_to_time(body.remind_time)
+        if body.remind_tz is not None:
+            sets.append("remind_tz = :remind_tz")
+            params["remind_tz"] = _validate_remind_tz(body.remind_tz)
         if body.title is not None:
             sets.append("title = :title")
             params["title"] = body.title
@@ -221,7 +241,8 @@ class MedicineScheduleService:
             text(
                 """
                 SELECT id, profile_id, medicine_id, title, category::text,
-                       remind_time, dosage_per_time, rrule, status::text
+                       remind_time, COALESCE(remind_tz, 'UTC') AS remind_tz,
+                       dosage_per_time, rrule, status::text
                 FROM schedules WHERE id = :sid
                 """
             ),
@@ -237,6 +258,7 @@ class MedicineScheduleService:
             title=u.get("title"),
             category=u.get("category") or "MEDICINE",
             remind_time=_time_to_hhmm(rt) if rt is not None else None,
+            remind_tz=str(u.get("remind_tz") or "UTC"),
             dosage_per_time=str(dpt) if dpt is not None else None,
             rrule=u.get("rrule"),
             status=u.get("status") or "ACTIVE",
@@ -250,9 +272,9 @@ class MedicineScheduleService:
         row = await self._session.execute(
             text(
                 """
-                SELECT s.id, s.profile_id, s.medicine_id, mi.family_id
+                SELECT s.id, s.profile_id, s.medicine_id, fm.family_id
                 FROM schedules s
-                JOIN medicine_inventory mi ON mi.id = s.medicine_id
+                JOIN family_memberships fm ON fm.profile_id = s.profile_id
                 WHERE s.id = :sid AND s.category = 'MEDICINE'
                 """
             ),

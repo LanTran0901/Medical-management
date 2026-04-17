@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -11,6 +12,7 @@ from app.application.ports.family_medicine_inventory_port import FamilyMedicineI
 from app.domain.entities.family_medicine_inventory import FamilyMedicineInventory
 from app.infrastructure.config.database.postgres.models.medicine_inventory_model import (
     FamilyMedicineInventoryModel,
+    MedicineInventoryModel,
 )
 
 
@@ -51,6 +53,7 @@ class FamilyMedicineInventoryRepositoryPG(FamilyMedicineInventoryRepositoryPort)
         *,
         family_id: UUID,
         created_by_user_id: UUID,
+        profile_id: UUID,
         medicine_name: str,
         quantity_stock: Decimal,
         unit: str,
@@ -61,10 +64,13 @@ class FamilyMedicineInventoryRepositoryPG(FamilyMedicineInventoryRepositoryPort)
         low_stock_alert_enabled: bool,
         expiry_alert_days_before: int,
     ) -> FamilyMedicineInventory:
-        model = FamilyMedicineInventoryModel(
+        normalized_name = medicine_name.strip()
+        shared_item_id = uuid.uuid4()
+        family_model = FamilyMedicineInventoryModel(
+            id=shared_item_id,
             family_id=family_id,
             created_by_user_id=created_by_user_id,
-            medicine_name=medicine_name.strip(),
+            medicine_name=normalized_name,
             quantity_stock=quantity_stock,
             unit=unit,
             expiry_date=expiry_date,
@@ -74,7 +80,26 @@ class FamilyMedicineInventoryRepositoryPG(FamilyMedicineInventoryRepositoryPort)
             low_stock_alert_enabled=low_stock_alert_enabled,
             expiry_alert_days_before=expiry_alert_days_before,
         )
-        self.session.add(model)
+        medicine_model = MedicineInventoryModel(
+            id=shared_item_id,
+            profile_id=profile_id,
+            medicine_name=normalized_name,
+            medicine_type=None,
+            expiry_date=expiry_date,
+            quantity_stock=quantity_stock,
+            unit=unit,
+            min_stock_alert=min_stock_alert,
+            instruction=note,
+            dosage_value=None,
+            dosage_unit=None,
+            dosage_per_use_value=None,
+            dosage_per_use_unit=None,
+            storage_location=storage_location,
+            expiry_alert_days_before=expiry_alert_days_before,
+            low_stock_alert_enabled=low_stock_alert_enabled,
+        )
+        self.session.add(family_model)
+        self.session.add(medicine_model)
         await self.session.flush()
-        await self.session.refresh(model)
-        return self._to_entity(model)
+        await self.session.refresh(family_model)
+        return self._to_entity(family_model)

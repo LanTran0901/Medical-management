@@ -11,6 +11,7 @@ from app.api.health_router import router as health_router
 from app.api.user_router import router as user_router
 from app.api.auth_router import router as auth_router
 from app.api.notification_router import router as notification_router
+from app.api.appointment_reminders_router import router as appointment_reminders_router
 from app.api.families_router import router as families_router
 from app.api.family_memberships_router import router as family_memberships_router
 from app.api.medicine_inventory_router import router as medicine_inventory_router
@@ -35,28 +36,44 @@ def _skip_mongo_lifespan() -> bool:
     return os.getenv("SKIP_MONGO_LIFESPAN", "").lower() in ("1", "true", "yes")
 
 
+def _should_run_schedule_dispatch() -> bool:
+    if not settings.schedule_dispatch_enabled:
+        return False
+    if settings.firebase_credentials_path:
+        return True
+    if settings.expo_push_enabled:
+        return True
+    return False
+
+
 async def _schedule_dispatch_loop() -> None:
-    """Background poll for due MEDICINE schedules and send FCM (optional)."""
+    """Background poll for due MEDICINE schedules + appointment reminders; push via FCM/Expo."""
+    from app.application.usecases.appointment_reminder_push_usecases import (
+        ProcessDueAppointmentReminderPushesUseCase,
+    )
     from app.application.usecases.schedule_push_usecases import (
         ProcessDueSchedulePushesUseCase,
     )
     from app.infrastructure.config.database.postgres.connection import AsyncSessionLocal
-    from app.infrastructure.services.fcm_service import FCMService
+    from app.infrastructure.services.hybrid_notification_service import HybridNotificationService
 
     interval = settings.schedule_dispatch_interval_seconds
     while True:
         await asyncio.sleep(interval)
         if not settings.schedule_dispatch_enabled:
             continue
-        if not settings.firebase_credentials_path:
+        if not settings.firebase_credentials_path and not settings.expo_push_enabled:
             continue
         try:
             async with AsyncSessionLocal() as session:
                 try:
-                    uc = ProcessDueSchedulePushesUseCase(session, FCMService())
-                    result = await uc.execute()
+                    push = HybridNotificationService()
+                    med = ProcessDueSchedulePushesUseCase(session, push)
+                    appt = ProcessDueAppointmentReminderPushesUseCase(session, push)
+                    r1 = await med.execute()
+                    r2 = await appt.execute()
                     await session.commit()
-                    logger.info("Schedule dispatch: %s", result)
+                    logger.info("Schedule dispatch: med=%s appt=%s", r1, r2)
                 except Exception:
                     await session.rollback()
                     raise
@@ -86,7 +103,7 @@ async def lifespan(_: FastAPI):
             firebase_admin.initialize_app(cred)
 
     dispatch_task: asyncio.Task | None = None
-    if settings.schedule_dispatch_enabled and settings.firebase_credentials_path:
+    if _should_run_schedule_dispatch():
         dispatch_task = asyncio.create_task(_schedule_dispatch_loop())
 
     yield
@@ -120,6 +137,7 @@ app.include_router(medicine_inventory_router)
 app.include_router(profile_router)
 app.include_router(medical_router)
 app.include_router(vaccination_router)
+app.include_router(appointment_reminders_router)
 app.include_router(files_router)
 app.include_router(medical_dictionary_router)
 app.include_router(notification_router)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +15,8 @@ from app.application.dtos.notification_dto import (
     ScheduleSnoozeResponse,
     ScheduleDispatchResponse,
 )
+from app.application.ports.notification_port import NotificationServicePort
 from app.core.config import settings
-from app.infrastructure.services.fcm_service import FCMService
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class LogScheduleComplianceUseCase:
     ) -> ScheduleComplianceResponse:
         check = text(
             """
-            SELECT s.id
+            SELECT s.id, COALESCE(s.remind_tz, 'UTC') AS remind_tz
             FROM schedules s
             JOIN profiles p ON p.id = s.profile_id
             WHERE s.id = :schedule_id
@@ -47,11 +48,14 @@ class LogScheduleComplianceUseCase:
             check,
             {"schedule_id": schedule_id, "user_id": user_id},
         )
-        if result.scalar_one_or_none() is None:
+        crow = result.mappings().one_or_none()
+        if crow is None:
             return ScheduleComplianceResponse(
                 success=False,
                 message="Schedule not found or access denied.",
             )
+        tz = ProcessDueSchedulePushesUseCase._zone(crow.get("remind_tz"))
+        occurrence_date = datetime.now(tz).date()
 
         status = _OUTCOME_TO_STATUS[request.outcome]
         ins = text(
@@ -82,7 +86,7 @@ class LogScheduleComplianceUseCase:
             ),
             {
                 "schedule_id": schedule_id,
-                "occurrence_date": datetime.now(timezone.utc).date(),
+                "occurrence_date": occurrence_date,
             },
         )
 
@@ -106,7 +110,7 @@ class SnoozeScheduleUseCase:
     ) -> ScheduleSnoozeResponse:
         check = text(
             """
-            SELECT s.id, s.remind_time
+            SELECT s.id, s.remind_time, COALESCE(s.remind_tz, 'UTC') AS remind_tz
             FROM schedules s
             JOIN profiles p ON p.id = s.profile_id
             WHERE s.id = :schedule_id
@@ -133,8 +137,14 @@ class SnoozeScheduleUseCase:
                 message="Schedule has no remind_time.",
             )
 
+        tz_name = row.get("remind_tz") or "UTC"
+        try:
+            tz = ZoneInfo(str(tz_name))
+        except Exception:
+            tz = ZoneInfo("UTC")
+
         now_utc = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-        occurrence_date = now_utc.date()
+        occurrence_date = datetime.now(tz).date()
         base_time_slot = remind_time.strftime("%H:%M")
         snoozed_until = (now_utc + timedelta(minutes=request.minutes)).replace(
             second=0,
@@ -196,11 +206,11 @@ class SnoozeScheduleUseCase:
 
 
 class ProcessDueSchedulePushesUseCase:
-    """Find MEDICINE schedules due this minute (UTC), dedupe via schedule_push_receipts, send FCM."""
+    """Find MEDICINE schedules due this minute in each schedule's remind_tz, dedupe, send push."""
 
-    def __init__(self, session: AsyncSession, fcm_service: FCMService) -> None:
+    def __init__(self, session: AsyncSession, push_service: NotificationServicePort) -> None:
         self.session = session
-        self._fcm = fcm_service
+        self._push = push_service
 
     @staticmethod
     def _extract_user_ids(row: dict) -> list[UUID]:
@@ -232,17 +242,17 @@ class ProcessDueSchedulePushesUseCase:
                     fcm_tokens.append(tok)
         return fcm_tokens
 
-    def _send_fcm(
+    def _send_push(
         self,
-        fcm_tokens: list[str],
+        tokens: list[str],
         title: str,
         body: str,
         data: dict[str, str],
         channel: str,
     ) -> None:
-        if len(fcm_tokens) == 1:
-            self._fcm.send_to_device(
-                fcm_tokens[0],
+        if len(tokens) == 1:
+            self._push.send_to_device(
+                tokens[0],
                 title,
                 body,
                 data,
@@ -250,8 +260,8 @@ class ProcessDueSchedulePushesUseCase:
                 android_sound="default",
             )
             return
-        self._fcm.send_to_multiple(
-            fcm_tokens,
+        self._push.send_to_multiple(
+            tokens,
             title,
             body,
             data,
@@ -259,18 +269,24 @@ class ProcessDueSchedulePushesUseCase:
             android_sound="default",
         )
 
+    @staticmethod
+    def _zone(tz_name: str | None) -> ZoneInfo:
+        name = (tz_name or "UTC").strip() or "UTC"
+        try:
+            return ZoneInfo(name)
+        except Exception:
+            return ZoneInfo("UTC")
+
     async def execute(self) -> ScheduleDispatchResponse:
         channel = settings.fcm_android_channel_schedule
-        now = datetime.now(timezone.utc)
-        occurrence_date: date = now.date()
-        current_hour = now.hour
-        current_minute = now.minute
+        now_utc = datetime.now(timezone.utc)
 
         rows_sql = text(
             """
             SELECT
                 s.id AS schedule_id,
                 s.remind_time AS remind_time,
+                COALESCE(s.remind_tz, 'UTC') AS remind_tz,
                 s.title AS title,
                 mi.medicine_name AS medicine_name,
                 p.full_name AS profile_name,
@@ -296,8 +312,12 @@ class ProcessDueSchedulePushesUseCase:
             rt = row["remind_time"]
             if rt is None:
                 continue
-            if rt.hour != current_hour or rt.minute != current_minute:
+            tz = self._zone(row.get("remind_tz"))
+            now_local = now_utc.astimezone(tz)
+            if rt.hour != now_local.hour or rt.minute != now_local.minute:
                 continue
+
+            occurrence_date: date = now_local.date()
 
             processed += 1
             schedule_id: UUID = row["schedule_id"]
@@ -341,11 +361,11 @@ class ProcessDueSchedulePushesUseCase:
                 )
                 continue
 
-            fcm_tokens = await self._collect_fcm_tokens(user_ids)
+            device_tokens = await self._collect_fcm_tokens(user_ids)
 
-            if not fcm_tokens:
+            if not device_tokens:
                 logger.warning(
-                    "No FCM tokens for schedule %s users %s", schedule_id, user_ids
+                    "No push tokens for schedule %s users %s", schedule_id, user_ids
                 )
                 await self.session.execute(
                     text("DELETE FROM schedule_push_receipts WHERE id = :id"),
@@ -363,10 +383,10 @@ class ProcessDueSchedulePushesUseCase:
             }
 
             try:
-                self._send_fcm(fcm_tokens, title, body, data, channel)
+                self._send_push(device_tokens, title, body, data, channel)
                 sent += 1
             except Exception as e:
-                logger.exception("FCM failed for schedule %s: %s", schedule_id, e)
+                logger.exception("Push failed for schedule %s: %s", schedule_id, e)
                 await self.session.execute(
                     text("DELETE FROM schedule_push_receipts WHERE id = :id"),
                     {"id": receipt_id},
@@ -374,6 +394,7 @@ class ProcessDueSchedulePushesUseCase:
                 errors += 1
 
         # Process overdue pending snoozes (retry-able until consumed).
+        now = now_utc
         snooze_rows = await self.session.execute(
             text(
                 """
@@ -461,10 +482,10 @@ class ProcessDueSchedulePushesUseCase:
                 )
                 continue
 
-            fcm_tokens = await self._collect_fcm_tokens(user_ids)
-            if not fcm_tokens:
+            device_tokens = await self._collect_fcm_tokens(user_ids)
+            if not device_tokens:
                 logger.warning(
-                    "No FCM tokens for snooze schedule %s users %s",
+                    "No push tokens for snooze schedule %s users %s",
                     schedule_id,
                     user_ids,
                 )
@@ -484,7 +505,7 @@ class ProcessDueSchedulePushesUseCase:
             }
 
             try:
-                self._send_fcm(fcm_tokens, title, body, data, channel)
+                self._send_push(device_tokens, title, body, data, channel)
                 await self.session.execute(
                     text(
                         "UPDATE schedule_snooze_overrides SET consumed_at = now() WHERE id = :id"
@@ -493,7 +514,7 @@ class ProcessDueSchedulePushesUseCase:
                 )
                 sent += 1
             except Exception as e:
-                logger.exception("FCM failed for snooze schedule %s: %s", schedule_id, e)
+                logger.exception("Push failed for snooze schedule %s: %s", schedule_id, e)
                 await self.session.execute(
                     text("DELETE FROM schedule_push_receipts WHERE id = :id"),
                     {"id": receipt_id},

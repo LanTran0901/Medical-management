@@ -75,6 +75,24 @@ class Settings(BaseSettings):
         description="If set, POST /notifications/dispatch/schedules requires header X-Internal-Secret.",
     )
 
+    # Expo Push (ExponentPushToken[...]) — enables dispatch without Firebase when true
+    expo_push_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "EXPO_PUSH_ENABLED",
+            "expo_push_enabled",
+        ),
+        description="When true, background dispatch can run without Firebase (Expo tokens only).",
+    )
+    expo_push_access_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "EXPO_PUSH_ACCESS_TOKEN",
+            "expo_push_access_token",
+        ),
+        description="Optional Expo access token for higher push API limits.",
+    )
+
     # SMTP Config for Emails
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587

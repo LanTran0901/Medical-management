@@ -25,6 +25,7 @@ from app.application.usecases.medical_records_usecases import MedicalRecordsServ
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
 from app.application.usecases.medicine_schedule_usecases import MedicineScheduleService
 from app.application.usecases.vaccination_usecases import VaccinationService
+from app.application.usecases.appointment_reminder_usecases import AppointmentReminderService
 from app.application.usecases.family_medicine_inventory_usecases import FamilyMedicineInventoryService
 from app.core.config import settings as app_settings
 from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
@@ -157,6 +158,15 @@ def get_vaccination_service(
 ) -> VaccinationService:
     return VaccinationService(
         VaccinationRepositoryPG(session),
+        AccessControlService(AccessControlPG(session)),
+    )
+
+
+def get_appointment_reminder_service(
+    session: AsyncSession = Depends(get_session),
+) -> AppointmentReminderService:
+    return AppointmentReminderService(
+        session,
         AccessControlService(AccessControlPG(session)),
     )
 

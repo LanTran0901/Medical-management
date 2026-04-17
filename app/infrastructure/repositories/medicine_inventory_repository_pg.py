@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.ports.medicine_inventory_port import MedicineInventoryRepositoryPort
 from app.domain.entities.medicine_inventory import MedicineInventory
 from app.infrastructure.config.database.postgres.models.medicine_inventory_model import (
+    FamilyMedicineInventoryModel,
     MedicineInventoryModel,
 )
 from app.infrastructure.config.database.postgres.models.family_models import FamilyMembershipModel
@@ -142,12 +143,41 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
         m = await self.session.get(MedicineInventoryModel, item_id)
         if m is None:
             return None
+        family_item = await self.session.get(FamilyMedicineInventoryModel, item_id)
         for key, value in fields.items():
             if key == "medicine_name" and isinstance(value, str):
                 setattr(m, key, value.strip())
+                if family_item is not None:
+                    family_item.medicine_name = value.strip()
+            elif family_item is not None and key == "quantity_stock":
+                family_item.quantity_stock = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "unit":
+                family_item.unit = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "expiry_date":
+                family_item.expiry_date = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "storage_location":
+                family_item.storage_location = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "instruction":
+                family_item.note = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "min_stock_alert":
+                family_item.min_stock_alert = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "low_stock_alert_enabled":
+                family_item.low_stock_alert_enabled = value
+                setattr(m, key, value)
+            elif family_item is not None and key == "expiry_alert_days_before":
+                family_item.expiry_alert_days_before = value
+                setattr(m, key, value)
             else:
                 setattr(m, key, value)
         m.updated_at = datetime.now(timezone.utc)
+        if family_item is not None:
+            family_item.updated_at = m.updated_at
         await self.session.flush()
         await self.session.refresh(m)
         return self._to_entity(m)
@@ -156,6 +186,9 @@ class MedicineInventoryRepositoryPG(MedicineInventoryRepositoryPort):
         m = await self.session.get(MedicineInventoryModel, item_id)
         if m is None:
             return False
+        family_item = await self.session.get(FamilyMedicineInventoryModel, item_id)
+        if family_item is not None:
+            await self.session.delete(family_item)
         await self.session.delete(m)
         await self.session.flush()
         return True

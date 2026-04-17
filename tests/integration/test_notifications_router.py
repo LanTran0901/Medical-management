@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from tests.integration.conftest import integration_disabled
@@ -35,6 +37,7 @@ def _bootstrap_medicine_schedule(client):
             "medicine_name": "Metformin 500mg",
             "medicine_type": "Viên nén",
             "quantity_stock": 10,
+            "expiry_date": (date.today() + timedelta(days=30)).isoformat(),
             "unit": "viên",
         },
         headers=headers,

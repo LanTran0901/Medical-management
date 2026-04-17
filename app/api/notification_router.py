@@ -34,13 +34,16 @@ from app.application.usecases.schedule_push_usecases import (
     SnoozeScheduleUseCase,
     ProcessDueSchedulePushesUseCase,
 )
+from app.application.usecases.appointment_reminder_push_usecases import (
+    ProcessDueAppointmentReminderPushesUseCase,
+)
 from app.core.config import settings
 from app.infrastructure.config.database.postgres.connection import (
     AsyncSessionLocal,
     get_session,
 )
 from app.infrastructure.repositories.auth_repository_pg import AuthRepositoryPG
-from app.infrastructure.services.fcm_service import FCMService
+from app.infrastructure.services.hybrid_notification_service import HybridNotificationService
 from app.api.dependencies import get_current_user
 from app.domain.entities.user import User
 
@@ -51,8 +54,8 @@ def get_auth_repository(session: AsyncSession = Depends(get_session)) -> AuthRep
     return AuthRepositoryPG(session)
 
 
-def get_fcm_service() -> FCMService:
-    return FCMService()
+def get_push_service() -> HybridNotificationService:
+    return HybridNotificationService()
 
 
 @router.post("/send", response_model=NotificationResponse)
@@ -60,10 +63,10 @@ async def send_notification_to_user(
     payload: SendNotificationRequest,
     current_user: User = Depends(get_current_user),
     auth_repo: AuthRepositoryPG = Depends(get_auth_repository),
-    fcm_service: FCMService = Depends(get_fcm_service),
+    push_service: HybridNotificationService = Depends(get_push_service),
 ) -> NotificationResponse:
     """Send push notification to all devices of a user."""
-    use_case = SendNotificationToUserUseCase(auth_repo, fcm_service)
+    use_case = SendNotificationToUserUseCase(auth_repo, push_service)
     return await use_case.execute(payload, current_user.id)
 
 
@@ -72,10 +75,10 @@ async def send_notification_to_device(
     payload: SendNotificationToDeviceRequest,
     current_user: User = Depends(get_current_user),
     auth_repo: AuthRepositoryPG = Depends(get_auth_repository),
-    fcm_service: FCMService = Depends(get_fcm_service),
+    push_service: HybridNotificationService = Depends(get_push_service),
 ) -> NotificationResponse:
-    """Send push notification to a specific device by FCM token (must be one of the caller's devices)."""
-    use_case = SendNotificationToDeviceUseCase(auth_repo, fcm_service)
+    """Send push notification to a specific device token (FCM or Expo; must belong to caller)."""
+    use_case = SendNotificationToDeviceUseCase(auth_repo, push_service)
     try:
         return await use_case.execute(payload, current_user.id)
     except ValueError as e:
@@ -134,10 +137,18 @@ async def dispatch_schedule_pushes(
 
     async with AsyncSessionLocal() as session:
         try:
-            use_case = ProcessDueSchedulePushesUseCase(session, FCMService())
-            result = await use_case.execute()
+            push = HybridNotificationService()
+            med = ProcessDueSchedulePushesUseCase(session, push)
+            appt = ProcessDueAppointmentReminderPushesUseCase(session, push)
+            r1 = await med.execute()
+            r2 = await appt.execute()
             await session.commit()
-            return result
+            return ScheduleDispatchResponse(
+                processed=r1.processed + r2.processed,
+                sent=r1.sent + r2.sent,
+                skipped_duplicate=r1.skipped_duplicate + r2.skipped_duplicate,
+                errors=r1.errors + r2.errors,
+            )
         except Exception:
             await session.rollback()
             raise

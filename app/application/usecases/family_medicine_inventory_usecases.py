@@ -59,10 +59,11 @@ class FamilyMedicineInventoryService:
         user_id: UUID,
         body: CreateFamilyMedicineInventoryRequest,
     ) -> FamilyMedicineInventoryResponse:
-        await self._access.require_family_admin(family_id, user_id)
+        membership = await self._access.require_family_admin(family_id, user_id)
         model = await self._repo.create(
             family_id=family_id,
             created_by_user_id=user_id,
+            profile_id=membership.profile_id,
             medicine_name=body.medicine_name,
             quantity_stock=body.quantity_stock,
             unit=body.unit,
