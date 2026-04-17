@@ -55,7 +55,8 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
             reaction=model.reaction,
             proof_url=model.proof_url,
             reminder_enabled=model.reminder_enabled,
-            remind_before_days=model.remind_before_days,
+            remind_before_value=model.remind_before_value,
+            remind_before_unit=model.remind_before_unit,
         )
 
     async def list_recommendations(self) -> list[VaccinationRecommendation]:
@@ -202,7 +203,8 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         reaction: str | None,
         proof_url: str | None,
         reminder_enabled: bool,
-        remind_before_days: int | None,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose:
         m = VaccinationDoseModel(
             user_vaccination_id=user_vaccination_id,
@@ -213,7 +215,8 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
             reaction=reaction,
             proof_url=proof_url,
             reminder_enabled=reminder_enabled,
-            remind_before_days=remind_before_days,
+            remind_before_value=remind_before_value,
+            remind_before_unit=remind_before_unit,
         )
         self.session.add(m)
         await self.session.flush()
@@ -230,7 +233,8 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         reaction: str | None,
         proof_url: str | None,
         reminder_enabled: bool,
-        remind_before_days: int | None,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose | None:
         dose = await self.session.get(VaccinationDoseModel, dose_id)
         if dose is None:
@@ -241,7 +245,8 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         dose.reaction = reaction
         dose.proof_url = proof_url
         dose.reminder_enabled = reminder_enabled
-        dose.remind_before_days = remind_before_days
+        dose.remind_before_value = remind_before_value
+        dose.remind_before_unit = remind_before_unit
         await self.session.flush()
         await self.session.refresh(dose)
         return self._to_dose(dose)

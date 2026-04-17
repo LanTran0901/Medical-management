@@ -24,6 +24,15 @@ appointment_reminder_status_pg = ENUM(
     create_type=False,
 )
 
+appointment_remind_before_unit_pg = ENUM(
+    "MINUTES",
+    "HOURS",
+    "DAYS",
+    "WEEKS",
+    name="follow_up_remind_before_unit",
+    create_type=False,
+)
+
 
 class AppointmentReminderModel(Base):
     """Unified reminders for follow-up visits and vaccination appointments."""
@@ -50,10 +59,11 @@ class AppointmentReminderModel(Base):
         nullable=False,
         index=True,
     )
-    remind_before_minutes: Mapped[int] = mapped_column(
-        sa.Integer,
+    remind_before_value: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("60"))
+    remind_before_unit: Mapped[str] = mapped_column(
+        appointment_remind_before_unit_pg,
         nullable=False,
-        server_default=sa.text("60"),
+        server_default=sa.text("'MINUTES'::follow_up_remind_before_unit"),
     )
     vaccine_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     dose_number: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
@@ -99,5 +109,9 @@ class AppointmentReminderModel(Base):
         sa.CheckConstraint(
             "(vaccination_dose_id IS NULL) OR (type = 'vaccine'::appointment_reminder_type)",
             name="ck_appointment_reminders_dose_is_vaccine",
+        ),
+        sa.CheckConstraint(
+            "remind_before_value > 0",
+            name="ck_appointment_reminders_remind_before_value_positive",
         ),
     )

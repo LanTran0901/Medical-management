@@ -4,8 +4,17 @@ import uuid
 from datetime import date, datetime
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
+
+vaccination_remind_before_unit_pg = ENUM(
+    "MINUTES",
+    "HOURS",
+    "DAYS",
+    "WEEKS",
+    name="follow_up_remind_before_unit",
+    create_type=False,
+)
 
 from app.infrastructure.config.database.base import Base
 
@@ -95,4 +104,17 @@ class VaccinationDoseModel(Base):
         nullable=False,
         server_default=sa.text("false"),
     )
-    remind_before_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    remind_before_value: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    remind_before_unit: Mapped[str | None] = mapped_column(
+        vaccination_remind_before_unit_pg,
+        nullable=True,
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "(NOT reminder_enabled AND remind_before_value IS NULL AND remind_before_unit IS NULL) OR "
+            "(reminder_enabled AND remind_before_value IS NOT NULL AND remind_before_unit IS NOT NULL "
+            "AND remind_before_value > 0)",
+            name="ck_vaccination_dose_reminder_offset",
+        ),
+    )

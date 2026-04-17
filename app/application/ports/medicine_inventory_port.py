@@ -5,10 +5,19 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.domain.entities.medicine_inventory import MedicineInventory
+from app.domain.entities.medicine_reminder import MedicineReminder
 
 
 class MedicineInventoryRepositoryPort:
     async def list_by_family(self, family_id: UUID, *, alert: str | None) -> list[MedicineInventory]:
+        raise NotImplementedError
+
+    async def list_by_profile_id(self, profile_id: UUID) -> list[MedicineInventory]:
+        raise NotImplementedError
+
+    async def list_medicine_reminders_by_inventory_ids(
+        self, inventory_ids: list[UUID]
+    ) -> dict[UUID, MedicineReminder]:
         raise NotImplementedError
 
     async def get_by_id(self, item_id: UUID) -> MedicineInventory | None:

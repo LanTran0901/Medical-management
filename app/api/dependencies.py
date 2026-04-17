@@ -19,8 +19,10 @@ from app.infrastructure.repositories.medicine_inventory_repository_pg import (
 )
 from app.infrastructure.repositories.vaccination_repository_pg import VaccinationRepositoryPG
 from app.infrastructure.repositories.family_medicine_inventory_repository_pg import FamilyMedicineInventoryRepositoryPG
+from app.infrastructure.repositories.appointment_reminder_repository_pg import AppointmentReminderRepositoryPG
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.access_control_usecases import AccessControlService
+from app.application.usecases.appointment_reminder_read_usecases import AppointmentReminderReadService
 from app.application.usecases.medical_records_usecases import MedicalRecordsService
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
 from app.application.usecases.medicine_schedule_usecases import MedicineScheduleService
@@ -28,7 +30,6 @@ from app.application.usecases.vaccination_usecases import VaccinationService
 from app.application.usecases.family_medicine_inventory_usecases import FamilyMedicineInventoryService
 from app.core.config import settings as app_settings
 from app.infrastructure.repositories.medical_dictionary_repository import MedicalDictionaryRepository
-from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medical_dictionary_usecases import MedicalDictionaryService
 from app.application.usecases.rag_usecases import MedicalRagService
 
@@ -138,6 +139,15 @@ def get_medicine_schedule_service(
 ) -> MedicineScheduleService:
     return MedicineScheduleService(
         session,
+        AccessControlService(AccessControlPG(session)),
+    )
+
+
+def get_appointment_reminder_read_service(
+    session: AsyncSession = Depends(get_session),
+) -> AppointmentReminderReadService:
+    return AppointmentReminderReadService(
+        AppointmentReminderRepositoryPG(session),
         AccessControlService(AccessControlPG(session)),
     )
 

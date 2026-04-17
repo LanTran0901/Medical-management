@@ -7,6 +7,20 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class MedicineReminderResponse(BaseModel):
+    id: UUID
+    medicine_inventory_id: UUID
+    enabled: bool
+    start_date: date | None
+    repeat_every_value: int
+    repeat_every_unit: str
+    active_days: list[int]
+    times: list[str]
+    remind_before_minutes: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class MedicineInventoryResponse(BaseModel):
     id: UUID
     profile_id: UUID | None

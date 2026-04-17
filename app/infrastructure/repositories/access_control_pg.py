@@ -150,7 +150,8 @@ class AccessControlPG(AccessControlPort):
             reaction=model.reaction,
             proof_url=model.proof_url,
             reminder_enabled=model.reminder_enabled,
-            remind_before_days=model.remind_before_days,
+            remind_before_value=model.remind_before_value,
+            remind_before_unit=model.remind_before_unit,
         )
 
     @staticmethod

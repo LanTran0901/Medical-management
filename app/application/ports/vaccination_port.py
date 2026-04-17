@@ -72,7 +72,8 @@ class VaccinationRepositoryPort:
         reaction: str | None,
         proof_url: str | None,
         reminder_enabled: bool,
-        remind_before_days: int | None,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose:
         raise NotImplementedError
 
@@ -86,7 +87,8 @@ class VaccinationRepositoryPort:
         reaction: str | None,
         proof_url: str | None,
         reminder_enabled: bool,
-        remind_before_days: int | None,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose | None:
         raise NotImplementedError
 

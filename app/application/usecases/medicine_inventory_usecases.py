@@ -9,10 +9,13 @@ from app.application.ports.medicine_inventory_port import MedicineInventoryRepos
 from app.application.dtos.medicine_dto import (
     CreateMedicineInventoryRequest,
     MedicineInventoryResponse,
+    MedicineReminderResponse,
     PatchMedicineInventoryRequest,
 )
+from app.application.dtos.user_dto import UserMeMedicineInventoryItem
 from app.application.usecases.access_control_usecases import AccessControlService
 from app.domain.entities.medicine_inventory import MedicineInventory
+from app.domain.entities.medicine_reminder import MedicineReminder
 
 
 def _alert_flags(m: MedicineInventory, today: date) -> tuple[bool, bool, bool]:
@@ -64,6 +67,22 @@ def _to_response(m: MedicineInventory) -> MedicineInventoryResponse:
     )
 
 
+def _reminder_to_response(r: MedicineReminder) -> MedicineReminderResponse:
+    return MedicineReminderResponse(
+        id=r.id,
+        medicine_inventory_id=r.medicine_inventory_id,
+        enabled=r.enabled,
+        start_date=r.start_date,
+        repeat_every_value=r.repeat_every_value,
+        repeat_every_unit=r.repeat_every_unit,
+        active_days=r.active_days,
+        times=r.times,
+        remind_before_minutes=r.remind_before_minutes,
+        created_at=r.created_at,
+        updated_at=r.updated_at,
+    )
+
+
 class MedicineInventoryService:
     def __init__(
         self,
@@ -85,6 +104,27 @@ class MedicineInventoryService:
         await self._access.require_family_member(family_id, user_id)
         rows = await self._repo.list_by_family(family_id, alert=alert)
         return [_to_response(m) for m in rows]
+
+    async def list_for_profile_with_reminders(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+    ) -> list[UserMeMedicineInventoryItem]:
+        await self._access.require_profile_read(profile_id, user_id)
+        rows = await self._repo.list_by_profile_id(profile_id)
+        ids = [m.id for m in rows]
+        reminders = await self._repo.list_medicine_reminders_by_inventory_ids(ids)
+        out: list[UserMeMedicineInventoryItem] = []
+        for m in rows:
+            base = _to_response(m)
+            rem = reminders.get(m.id)
+            out.append(
+                UserMeMedicineInventoryItem(
+                    **base.model_dump(),
+                    medicine_reminder=_reminder_to_response(rem) if rem is not None else None,
+                )
+            )
+        return out
 
     async def get_item_by_id(self, item_id: UUID, user_id: UUID) -> MedicineInventoryResponse:
         context = await self._access.require_medicine_item_read(item_id, user_id)
