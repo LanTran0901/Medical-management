@@ -14,6 +14,7 @@ from app.application.dtos.appointment_reminder_dto import (
 )
 from app.application.family_errors import NotFoundError
 from app.application.usecases.access_control_usecases import AccessControlService
+from app.domain.remind_before import RemindBeforeUnit
 
 
 class AppointmentReminderService:
@@ -30,7 +31,8 @@ class AppointmentReminderService:
             hospital_name=row.get("hospital_name"),
             department=row.get("department"),
             appointment_at=row["appointment_at"],
-            remind_before_minutes=int(row["remind_before_minutes"]),
+            remind_before_value=int(row["remind_before_value"]),
+            remind_before_unit=RemindBeforeUnit(str(row["remind_before_unit"]).upper()),
             vaccine_name=row.get("vaccine_name"),
             dose_number=row.get("dose_number"),
             total_doses=row.get("total_doses"),
@@ -49,7 +51,8 @@ class AppointmentReminderService:
                 """
                 SELECT
                     id, profile_id, type::text AS type, title, hospital_name, department,
-                    appointment_at, remind_before_minutes, vaccine_name, dose_number, total_doses,
+                    appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                    vaccine_name, dose_number, total_doses,
                     status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                 FROM appointment_reminders
                 WHERE profile_id = :pid
@@ -78,12 +81,14 @@ class AppointmentReminderService:
                 """
                 INSERT INTO appointment_reminders (
                     id, profile_id, type, title, hospital_name, department,
-                    appointment_at, remind_before_minutes, vaccine_name, dose_number, total_doses,
+                    appointment_at, remind_before_value, remind_before_unit,
+                    vaccine_name, dose_number, total_doses,
                     status, note, follow_up_appointment_id, vaccination_dose_id
                 )
                 VALUES (
                     :id, :profile_id, CAST(:rtype AS appointment_reminder_type), :title,
-                    :hospital_name, :department, :appointment_at, :remind_before_minutes,
+                    :hospital_name, :department, :appointment_at,
+                    :remind_before_value, CAST(:remind_before_unit AS follow_up_remind_before_unit),
                     :vaccine_name, :dose_number, :total_doses,
                     'pending'::appointment_reminder_status, :note,
                     :follow_up_appointment_id, :vaccination_dose_id
@@ -98,7 +103,8 @@ class AppointmentReminderService:
                 "hospital_name": body.hospital_name,
                 "department": body.department,
                 "appointment_at": at,
-                "remind_before_minutes": body.remind_before_minutes,
+                "remind_before_value": body.remind_before_value,
+                "remind_before_unit": body.remind_before_unit.value,
                 "vaccine_name": body.vaccine_name,
                 "dose_number": body.dose_number,
                 "total_doses": body.total_doses,
@@ -114,7 +120,8 @@ class AppointmentReminderService:
                     """
                     SELECT
                         id, profile_id, type::text AS type, title, hospital_name, department,
-                        appointment_at, remind_before_minutes, vaccine_name, dose_number, total_doses,
+                        appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                        vaccine_name, dose_number, total_doses,
                         status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                     FROM appointment_reminders WHERE id = :id
                     """
@@ -132,8 +139,10 @@ class AppointmentReminderService:
                 """
                 SELECT
                     ar.id, ar.profile_id, ar.type::text AS type, ar.title, ar.hospital_name,
-                    ar.department, ar.appointment_at, ar.remind_before_minutes, ar.vaccine_name,
-                    ar.dose_number, ar.total_doses, ar.status::text AS status, ar.note,
+                    ar.department, ar.appointment_at,
+                    ar.remind_before_value, ar.remind_before_unit::text AS remind_before_unit,
+                    ar.vaccine_name, ar.dose_number, ar.total_doses,
+                    ar.status::text AS status, ar.note,
                     ar.follow_up_appointment_id, ar.vaccination_dose_id
                 FROM appointment_reminders ar
                 JOIN profiles p ON p.id = ar.profile_id
@@ -169,9 +178,12 @@ class AppointmentReminderService:
                 at = at.replace(tzinfo=timezone.utc)
             sets.append("appointment_at = :appointment_at")
             params["appointment_at"] = at
-        if body.remind_before_minutes is not None:
-            sets.append("remind_before_minutes = :rbm")
-            params["rbm"] = body.remind_before_minutes
+        if body.remind_before_value is not None:
+            sets.append("remind_before_value = :rbv")
+            params["rbv"] = body.remind_before_value
+        if body.remind_before_unit is not None:
+            sets.append("remind_before_unit = CAST(:rbu AS follow_up_remind_before_unit)")
+            params["rbu"] = body.remind_before_unit.value
         if body.hospital_name is not None:
             sets.append("hospital_name = :hospital_name")
             params["hospital_name"] = body.hospital_name
@@ -209,7 +221,8 @@ class AppointmentReminderService:
                     """
                     SELECT
                         id, profile_id, type::text AS type, title, hospital_name, department,
-                        appointment_at, remind_before_minutes, vaccine_name, dose_number, total_doses,
+                        appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                        vaccine_name, dose_number, total_doses,
                         status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                     FROM appointment_reminders WHERE id = :rid
                     """

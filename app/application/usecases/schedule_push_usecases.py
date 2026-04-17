@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
+from typing import Sequence
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -242,6 +243,21 @@ class ProcessDueSchedulePushesUseCase:
                     fcm_tokens.append(tok)
         return fcm_tokens
 
+    async def _clear_failed_tokens(self, failed_tokens: Sequence[str]) -> None:
+        cleaned = [tok.strip() for tok in failed_tokens if isinstance(tok, str) and tok.strip()]
+        if not cleaned:
+            return
+        await self.session.execute(
+            text(
+                """
+                UPDATE user_devices
+                SET fcm_token = NULL
+                WHERE fcm_token = ANY(:tokens)
+                """
+            ),
+            {"tokens": cleaned},
+        )
+
     def _send_push(
         self,
         tokens: list[str],
@@ -249,18 +265,8 @@ class ProcessDueSchedulePushesUseCase:
         body: str,
         data: dict[str, str],
         channel: str,
-    ) -> None:
-        if len(tokens) == 1:
-            self._push.send_to_device(
-                tokens[0],
-                title,
-                body,
-                data,
-                android_channel_id=channel,
-                android_sound="default",
-            )
-            return
-        self._push.send_to_multiple(
+    ) -> tuple[int, int, list[str]]:
+        return self._push.send_to_multiple(
             tokens,
             title,
             body,
@@ -383,8 +389,29 @@ class ProcessDueSchedulePushesUseCase:
             }
 
             try:
-                self._send_push(device_tokens, title, body, data, channel)
-                sent += 1
+                success_count, failure_count, failed_tokens = self._send_push(
+                    device_tokens,
+                    title,
+                    body,
+                    data,
+                    channel,
+                )
+                if failure_count:
+                    await self._clear_failed_tokens(failed_tokens)
+                    logger.warning(
+                        "Push partially failed for schedule %s (%s/%s)",
+                        schedule_id,
+                        failure_count,
+                        len(device_tokens),
+                    )
+                if success_count > 0:
+                    sent += 1
+                    continue
+                await self.session.execute(
+                    text("DELETE FROM schedule_push_receipts WHERE id = :id"),
+                    {"id": receipt_id},
+                )
+                errors += 1
             except Exception as e:
                 logger.exception("Push failed for schedule %s: %s", schedule_id, e)
                 await self.session.execute(
@@ -505,7 +532,28 @@ class ProcessDueSchedulePushesUseCase:
             }
 
             try:
-                self._send_push(device_tokens, title, body, data, channel)
+                success_count, failure_count, failed_tokens = self._send_push(
+                    device_tokens,
+                    title,
+                    body,
+                    data,
+                    channel,
+                )
+                if failure_count:
+                    await self._clear_failed_tokens(failed_tokens)
+                    logger.warning(
+                        "Push partially failed for snooze schedule %s (%s/%s)",
+                        schedule_id,
+                        failure_count,
+                        len(device_tokens),
+                    )
+                if success_count == 0:
+                    await self.session.execute(
+                        text("DELETE FROM schedule_push_receipts WHERE id = :id"),
+                        {"id": receipt_id},
+                    )
+                    errors += 1
+                    continue
                 await self.session.execute(
                     text(
                         "UPDATE schedule_snooze_overrides SET consumed_at = now() WHERE id = :id"

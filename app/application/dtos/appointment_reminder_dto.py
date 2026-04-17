@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, Field
 
+from app.domain.remind_before import RemindBeforeUnit
+
 
 class CreateAppointmentReminderRequest(BaseModel):
     """Create an appointment reminder (tái khám or vaccine)."""
@@ -17,7 +19,8 @@ class CreateAppointmentReminderRequest(BaseModel):
     )
     title: str = Field(..., min_length=1, max_length=512)
     appointment_at: datetime
-    remind_before_minutes: int = Field(default=60, ge=1, le=10080)
+    remind_before_value: int = Field(default=60, ge=1)
+    remind_before_unit: RemindBeforeUnit = Field(default=RemindBeforeUnit.MINUTES)
     hospital_name: str | None = Field(None, max_length=512)
     department: str | None = Field(None, max_length=255)
     vaccine_name: str | None = Field(None, max_length=255)
@@ -33,7 +36,8 @@ class CreateAppointmentReminderRequest(BaseModel):
 class PatchAppointmentReminderRequest(BaseModel):
     title: str | None = Field(None, max_length=512)
     appointment_at: datetime | None = None
-    remind_before_minutes: int | None = Field(None, ge=1, le=10080)
+    remind_before_value: int | None = Field(None, ge=1)
+    remind_before_unit: RemindBeforeUnit | None = None
     hospital_name: str | None = None
     department: str | None = None
     vaccine_name: str | None = None
@@ -55,7 +59,8 @@ class AppointmentReminderResponse(BaseModel):
     hospital_name: str | None
     department: str | None
     appointment_at: datetime
-    remind_before_minutes: int
+    remind_before_value: int
+    remind_before_unit: RemindBeforeUnit
     vaccine_name: str | None
     dose_number: int | None
     total_doses: int | None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import text
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.dtos.notification_dto import ScheduleDispatchResponse
 from app.application.ports.notification_port import NotificationServicePort
 from app.core.config import settings
+from app.domain.remind_before import remind_before_to_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,21 @@ class ProcessDueAppointmentReminderPushesUseCase:
             out.append(l)
         return out
 
+    async def _clear_failed_tokens(self, failed_tokens: Sequence[str]) -> None:
+        cleaned = [tok.strip() for tok in failed_tokens if isinstance(tok, str) and tok.strip()]
+        if not cleaned:
+            return
+        await self.session.execute(
+            text(
+                """
+                UPDATE user_devices
+                SET fcm_token = NULL
+                WHERE fcm_token = ANY(:tokens)
+                """
+            ),
+            {"tokens": cleaned},
+        )
+
     def _send(
         self,
         tokens: list[str],
@@ -58,18 +75,8 @@ class ProcessDueAppointmentReminderPushesUseCase:
         body: str,
         data: dict[str, str],
         channel: str,
-    ) -> None:
-        if len(tokens) == 1:
-            self._push.send_to_device(
-                tokens[0],
-                title,
-                body,
-                data,
-                android_channel_id=channel,
-                android_sound="default",
-            )
-            return
-        self._push.send_to_multiple(
+    ) -> tuple[int, int, list[str]]:
+        return self._push.send_to_multiple(
             tokens,
             title,
             body,
@@ -90,7 +97,8 @@ class ProcessDueAppointmentReminderPushesUseCase:
                 ar.type::text AS reminder_type,
                 ar.title AS title,
                 ar.appointment_at AS appointment_at,
-                ar.remind_before_minutes AS remind_before_minutes,
+                ar.remind_before_value AS remind_before_value,
+                ar.remind_before_unit::text AS remind_before_unit,
                 ar.vaccine_name AS vaccine_name,
                 ar.hospital_name AS hospital_name,
                 p.owner_user_id AS owner_user_id,
@@ -116,7 +124,10 @@ class ProcessDueAppointmentReminderPushesUseCase:
             else:
                 appt_at = appt_at.astimezone(timezone.utc)
 
-            before = int(row.get("remind_before_minutes") or 60)
+            before = remind_before_to_minutes(
+                row.get("remind_before_value"),
+                row.get("remind_before_unit"),
+            ) or 60
             remind_at = appt_at - timedelta(minutes=before)
             fire_bucket = remind_at.replace(second=0, microsecond=0)
             if fire_bucket != current_bucket:
@@ -184,8 +195,31 @@ class ProcessDueAppointmentReminderPushesUseCase:
             }
 
             try:
-                self._send(tokens, title_txt, body_txt, data, channel)
-                sent += 1
+                success_count, failure_count, failed_tokens = self._send(
+                    tokens,
+                    title_txt,
+                    body_txt,
+                    data,
+                    channel,
+                )
+                if failure_count:
+                    await self._clear_failed_tokens(failed_tokens)
+                    logger.warning(
+                        "Push partially failed for appointment_reminder %s (%s/%s)",
+                        reminder_id,
+                        failure_count,
+                        len(tokens),
+                    )
+                if success_count > 0:
+                    sent += 1
+                    continue
+                errors += 1
+                await self.session.execute(
+                    text(
+                        "DELETE FROM appointment_reminder_push_receipts WHERE id = :id"
+                    ),
+                    {"id": receipt_id},
+                )
             except Exception as e:
                 logger.exception("Push failed for appointment_reminder %s: %s", reminder_id, e)
                 errors += 1
