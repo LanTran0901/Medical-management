@@ -69,7 +69,11 @@ class VaccinationRepositoryPort:
         administered_at: date | None,
         scheduled_at: date | None,
         location: str | None,
+        reaction: str | None,
         proof_url: str | None,
+        reminder_enabled: bool,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose:
         raise NotImplementedError
 
@@ -80,7 +84,11 @@ class VaccinationRepositoryPort:
         administered_at: date | None,
         scheduled_at: date | None,
         location: str | None,
+        reaction: str | None,
         proof_url: str | None,
+        reminder_enabled: bool,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
     ) -> VaccinationDose | None:
         raise NotImplementedError
 

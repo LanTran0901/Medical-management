@@ -19,6 +19,9 @@ from urllib.parse import quote_plus
 os.environ.setdefault("SKIP_MONGO_LIFESPAN", "1")
 # Mặc định chạy integration (không cần export). Tắt: HOMEDMEDAI_INTEGRATION=0
 os.environ.setdefault("HOMEDMEDAI_INTEGRATION", "1")
+os.environ.setdefault("FIREBASE_CREDENTIALS_PATH", "")
+os.environ.setdefault("EXPO_PUSH_ENABLED", "0")
+os.environ.setdefault("SCHEDULE_DISPATCH_ENABLED", "0")
 
 
 def integration_disabled() -> bool:

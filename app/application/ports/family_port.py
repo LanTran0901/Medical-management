@@ -14,7 +14,7 @@ from app.domain.entities.family import (
     FamilyRole,
     PublicInvitePreview,
 )
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile
 
 
@@ -242,7 +242,9 @@ class FamilyRepositoryPort(ABC):
         blood_type: str | None = None,
         chronic_diseases: list[str] | None = None,
         allergies: list[str] | None = None,
-        emergency_contact: str | None = None,
+        drug_allergies: list[str] | None = None,
+        food_allergies: list[str] | None = None,
+        emergency_contacts: list[EmergencyContactEntry] | None = None,
         notes: str | None = None,
     ) -> HealthDetail:
         raise NotImplementedError

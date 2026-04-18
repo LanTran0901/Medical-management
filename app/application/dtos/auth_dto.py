@@ -33,12 +33,42 @@ class LoginRequest(BaseModel):
     platform: Optional[str] = None
     fcm_token: Optional[str] = None
 
+    @field_validator("fcm_token")
+    @classmethod
+    def normalize_fcm_token(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
 class GoogleLoginRequest(BaseModel):
     google_token: str
     device_id: str = Field(..., min_length=1, description="ID định danh thiết bị, không được để trống")
     device_name: Optional[str] = None
     platform: Optional[str] = None
     fcm_token: Optional[str] = None
+
+    @field_validator("fcm_token")
+    @classmethod
+    def normalize_fcm_token(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+class UpdateDeviceTokenRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, description="ID thiet bi can cap nhat token")
+    fcm_token: Optional[str] = None
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+
+    @field_validator("fcm_token")
+    @classmethod
+    def normalize_fcm_token(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 class TokenResponse(BaseModel):
     access_token: str

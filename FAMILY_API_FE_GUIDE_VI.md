@@ -942,16 +942,25 @@ Response `200`:
 
 Dùng khi OWNER đã tạo **proxy profile** trong family (người chưa có app); user mới đăng nhập nhập mã mời và **chọn đúng dòng** trong danh sách để gắn `linked_user_id` vào profile + `health_profile` **đã có**, không tạo profile trống mới.
 
-**Bước 1 — danh sách profile claim được**
+**Bước 1 — lấy family + danh sách member có thể claim**
 
 ```http
 GET /families/invite/linkable-profiles?invite_code=ABC123
 Authorization: Bearer <access_token>
 ```
 
-Response `200`: `family_id`, `family_name`, `invite_code`, `profiles[]` (`profile_id`, `health_profile_id`, `full_name`, `dob`, `gender`, `avatar_url`, `status`, `linked_user_id` luôn `null`). Chỉ gồm profile **trong đúng family của mã**, `linked_user_id` null, `status` là `SHADOW` hoặc `PENDING_LINK`, chưa xóa.
+Response `200`: `id`, `name`, `address`, `avatar_url`, `invite_code`, `created_at`, `members[]`.
 
-**Bước 2 — gắn account vào profile đã chọn**
+Mỗi phần tử trong `members[]` có:
+- `id` = `profile_id`
+- `full_name`
+- `role`
+- `relation_role`
+- `avatar_url`
+
+Chỉ gồm member mà profile **trong đúng family của mã**, `linked_user_id` đang `null`, `status` là `SHADOW` hoặc `PENDING_LINK`, chưa xóa.
+
+**Bước 2 — gắn account vào member đã chọn**
 
 ```http
 POST /families/invite/link-profile
@@ -961,7 +970,7 @@ Authorization: Bearer <access_token>
 ```json
 {
   "invite_code": "ABC123",
-  "profile_id": "bf94402d-5f25-4d07-847d-cff4b2ac1111"
+  "profile_id": "members[0].id"
 }
 ```
 

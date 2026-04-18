@@ -5,11 +5,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.application.dtos.family_dto import ProfileResponse
+from app.application.dtos.family_dto import EmergencyContactItem, ProfileResponse
 from app.application.dtos.medical_dto import MedicalRecordResponse
+from app.application.dtos.medicine_dto import MedicineInventoryResponse, MedicineReminderResponse
 from app.application.dtos.vaccination_dto import UserVaccinationWithDosesResponse
+from app.domain.entities.appointment_reminder import AppointmentReminder
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.user import User, UserStatus
+from app.domain.remind_before import RemindBeforeUnit
 
 
 class UpdateUserRequest(BaseModel):
@@ -49,6 +52,54 @@ class UserResponse(BaseModel):
         )
 
 
+class AppointmentReminderResponse(BaseModel):
+    id: UUID
+    profile_id: UUID
+    reminder_type: str
+    title: str
+    hospital_name: str | None
+    department: str | None
+    appointment_at: datetime
+    remind_before_value: int
+    remind_before_unit: RemindBeforeUnit
+    vaccine_name: str | None
+    dose_number: int | None
+    total_doses: int | None
+    status: str
+    note: str | None
+    follow_up_appointment_id: UUID | None
+    vaccination_dose_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_entity(cls, row: AppointmentReminder) -> "AppointmentReminderResponse":
+        return cls(
+            id=row.id,
+            profile_id=row.profile_id,
+            reminder_type=row.reminder_type,
+            title=row.title,
+            hospital_name=row.hospital_name,
+            department=row.department,
+            appointment_at=row.appointment_at,
+            remind_before_value=row.remind_before_value,
+            remind_before_unit=RemindBeforeUnit(str(row.remind_before_unit).upper()),
+            vaccine_name=row.vaccine_name,
+            dose_number=row.dose_number,
+            total_doses=row.total_doses,
+            status=row.status,
+            note=row.note,
+            follow_up_appointment_id=row.follow_up_appointment_id,
+            vaccination_dose_id=row.vaccination_dose_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+
+class UserMeMedicineInventoryItem(MedicineInventoryResponse):
+    medicine_reminder: MedicineReminderResponse | None = None
+
+
 class UserMeHealthProfileResponse(BaseModel):
     """Sức khỏe + bệnh án + tiêm chủng (personal profile) — dùng cache tab Home / Sức khỏe."""
 
@@ -56,11 +107,15 @@ class UserMeHealthProfileResponse(BaseModel):
     blood_type: str | None
     chronic_diseases: list[str] | None
     allergies: list[str] | None
-    emergency_contact: str | None
+    drug_allergies: list[str] | None = None
+    food_allergies: list[str] | None = None
+    emergency_contacts: list[EmergencyContactItem] = Field(default_factory=list)
     notes: str | None
     updated_at: datetime
     medical_records: list[MedicalRecordResponse] = Field(default_factory=list)
     vaccinations: list[UserVaccinationWithDosesResponse] = Field(default_factory=list)
+    medicine_inventory: list[UserMeMedicineInventoryItem] = Field(default_factory=list)
+    appointment_reminders: list[AppointmentReminderResponse] = Field(default_factory=list)
 
     @classmethod
     def from_parts(
@@ -69,29 +124,45 @@ class UserMeHealthProfileResponse(BaseModel):
         health: HealthDetail | None,
         medical_records: list[MedicalRecordResponse],
         vaccinations: list[UserVaccinationWithDosesResponse],
+        *,
+        medicine_inventory: list[UserMeMedicineInventoryItem] | None = None,
+        appointment_reminders: list[AppointmentReminderResponse] | None = None,
     ) -> UserMeHealthProfileResponse:
+        med_inv = medicine_inventory if medicine_inventory is not None else []
+        appt = appointment_reminders if appointment_reminders is not None else []
         if health is not None:
             return cls(
                 profile_id=health.profile_id,
                 blood_type=health.blood_type,
                 chronic_diseases=health.chronic_diseases,
                 allergies=health.allergies,
-                emergency_contact=health.emergency_contact,
+                drug_allergies=health.drug_allergies,
+                food_allergies=health.food_allergies,
+                emergency_contacts=[
+                    EmergencyContactItem(name=x.name, phone=x.phone, relationship=x.relationship)
+                    for x in health.emergency_contacts
+                ],
                 notes=health.notes,
                 updated_at=health.updated_at,
                 medical_records=medical_records,
                 vaccinations=vaccinations,
+                medicine_inventory=med_inv,
+                appointment_reminders=appt,
             )
         return cls(
             profile_id=profile_id,
             blood_type=None,
             chronic_diseases=None,
             allergies=None,
-            emergency_contact=None,
+            drug_allergies=None,
+            food_allergies=None,
+            emergency_contacts=[],
             notes=None,
             updated_at=datetime.now(timezone.utc),
             medical_records=medical_records,
             vaccinations=vaccinations,
+            medicine_inventory=med_inv,
+            appointment_reminders=appt,
         )
 
 

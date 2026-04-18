@@ -10,7 +10,9 @@ class VaccinationRecommendation:
     id: UUID
     code: str | None
     name: str
+    disease_name: str | None
     total_doses: int
+    notes: str | None
     created_at: datetime
 
 
@@ -32,4 +34,8 @@ class VaccinationDose:
     administered_at: date | None
     scheduled_at: date | None
     location: str | None
+    reaction: str | None
     proof_url: str | None
+    reminder_enabled: bool
+    remind_before_value: int | None
+    remind_before_unit: str | None

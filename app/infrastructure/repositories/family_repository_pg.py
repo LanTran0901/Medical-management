@@ -22,7 +22,7 @@ from app.domain.entities.family import (
     FamilyRole,
     PublicInvitePreview,
 )
-from app.domain.entities.health_detail import HealthDetail
+from app.domain.entities.health_detail import EmergencyContactEntry, HealthDetail
 from app.domain.entities.profile import Profile, ProfileStatus
 from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyInviteModel,
@@ -37,17 +37,55 @@ from app.infrastructure.config.database.postgres.models.profile_models import (
 from app.infrastructure.config.database.postgres.models.user_model import UserModel
 
 
+INVITE_CODE_LENGTH = 8
+INVITE_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def _parse_emergency_contacts_raw(data: list | None) -> list[EmergencyContactEntry]:
+    """Parse JSONB emergency_contacts array from database to entity list."""
+    if not data:
+        return []
+    try:
+        return [
+            EmergencyContactEntry(
+                name=item.get("name"),
+                phone=item.get("phone"),
+                relationship=item.get("relationship"),
+            )
+            for item in data
+            if isinstance(item, dict)
+        ]
+    except (TypeError, AttributeError):
+        return []
+
+
+def _dump_emergency_contacts(contacts: list[EmergencyContactEntry]) -> list[dict]:
+    """Convert emergency_contacts entity list to JSONB-compatible format."""
+    return [
+        {"name": c.name, "phone": c.phone, "relationship": c.relationship}
+        for c in contacts
+    ]
+
+
 class FamilyRepositoryPG(FamilyRepositoryPort):
     """PostgreSQL implementation for families / profiles / health_details."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    @staticmethod
+    def _normalize_invite_code(code: str) -> str:
+        return code.strip().upper()
+
     async def _generate_unique_invite_code(self) -> str:
-        for _ in range(20):
-            code = secrets.token_urlsafe(12)[:16]
-            stmt_f = select(FamilyModel.id).where(FamilyModel.invite_code == code).limit(1)
-            stmt_p = select(FamilyPublicInviteModel.id).where(FamilyPublicInviteModel.invite_code == code).limit(1)
+        for _ in range(40):
+            code = "".join(secrets.choice(INVITE_CODE_ALPHABET) for _ in range(INVITE_CODE_LENGTH))
+            stmt_f = select(FamilyModel.id).where(func.upper(FamilyModel.invite_code) == code).limit(1)
+            stmt_p = (
+                select(FamilyPublicInviteModel.id)
+                .where(func.upper(FamilyPublicInviteModel.invite_code) == code)
+                .limit(1)
+            )
             rf = await self.session.execute(stmt_f)
             rp = await self.session.execute(stmt_p)
             if rf.scalar_one_or_none() is None and rp.scalar_one_or_none() is None:
@@ -144,9 +182,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
             blood_type=m.blood_type,
             chronic_diseases=list(m.chronic_diseases) if m.chronic_diseases is not None else None,
             allergies=list(m.allergies) if m.allergies is not None else None,
-            emergency_contact=m.emergency_contact,
             notes=m.notes,
             updated_at=m.updated_at,
+            drug_allergies=list(m.drug_allergies) if m.drug_allergies is not None else None,
+            food_allergies=list(m.food_allergies) if m.food_allergies is not None else None,
+            emergency_contacts=_parse_emergency_contacts_raw(m.emergency_contacts),
         )
 
     async def get_family(self, family_id: UUID) -> Family | None:
@@ -156,11 +196,12 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
     async def find_family_by_invite_code(self, code: str) -> Family | None:
         """Resolve family only when a non-expired PENDING public invite exists for code."""
         now = datetime.now(timezone.utc)
+        normalized_code = self._normalize_invite_code(code)
         stmt = (
             select(FamilyModel)
             .join(FamilyPublicInviteModel, FamilyPublicInviteModel.family_id == FamilyModel.id)
             .where(
-                FamilyPublicInviteModel.invite_code == code.strip(),
+                func.upper(FamilyPublicInviteModel.invite_code) == normalized_code,
                 FamilyPublicInviteModel.status == FamilyPublicInviteStatus.PENDING.value,
                 FamilyPublicInviteModel.expires_at > now,
             )
@@ -179,7 +220,7 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
     ) -> None:
         row = FamilyPublicInviteModel(
             family_id=family_id,
-            invite_code=invite_code.strip(),
+            invite_code=self._normalize_invite_code(invite_code),
             expires_at=expires_at,
             status=FamilyPublicInviteStatus.PENDING.value,
             created_by=created_by,
@@ -188,10 +229,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         await self.session.flush()
 
     async def preview_public_invite(self, code: str) -> PublicInvitePreview | None:
+        normalized_code = self._normalize_invite_code(code)
         stmt = (
             select(FamilyPublicInviteModel, FamilyModel.family_name)
             .join(FamilyModel, FamilyModel.id == FamilyPublicInviteModel.family_id)
-            .where(FamilyPublicInviteModel.invite_code == code.strip())
+            .where(func.upper(FamilyPublicInviteModel.invite_code) == normalized_code)
         )
         r = await self.session.execute(stmt)
         row = r.one_or_none()
@@ -211,10 +253,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
 
     async def consume_pending_public_invite(self, code: str, consumed_by: UUID) -> Family | None:
         now = datetime.now(timezone.utc)
+        normalized_code = self._normalize_invite_code(code)
         stmt = (
             update(FamilyPublicInviteModel)
             .where(
-                FamilyPublicInviteModel.invite_code == code.strip(),
+                func.upper(FamilyPublicInviteModel.invite_code) == normalized_code,
                 FamilyPublicInviteModel.status == FamilyPublicInviteStatus.PENDING.value,
                 FamilyPublicInviteModel.expires_at > now,
             )
@@ -776,7 +819,9 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         blood_type: str | None = None,
         chronic_diseases: list[str] | None = None,
         allergies: list[str] | None = None,
-        emergency_contact: str | None = None,
+        drug_allergies: list[str] | None = None,
+        food_allergies: list[str] | None = None,
+        emergency_contacts: list[EmergencyContactEntry] | None = None,
         notes: str | None = None,
     ) -> HealthDetail:
         stmt = select(HealthDetailModel).where(HealthDetailModel.profile_id == profile_id)
@@ -789,7 +834,11 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
                 blood_type=blood_type,
                 chronic_diseases=chronic_diseases,
                 allergies=allergies,
-                emergency_contact=emergency_contact,
+                drug_allergies=drug_allergies,
+                food_allergies=food_allergies,
+                emergency_contacts=_dump_emergency_contacts(
+                    emergency_contacts if emergency_contacts is not None else []
+                ),
                 notes=notes,
                 updated_at=now,
             )
@@ -801,8 +850,12 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
                 m.chronic_diseases = chronic_diseases
             if allergies is not None:
                 m.allergies = allergies
-            if emergency_contact is not None:
-                m.emergency_contact = emergency_contact
+            if drug_allergies is not None:
+                m.drug_allergies = drug_allergies
+            if food_allergies is not None:
+                m.food_allergies = food_allergies
+            if emergency_contacts is not None:
+                m.emergency_contacts = _dump_emergency_contacts(emergency_contacts)
             if notes is not None:
                 m.notes = notes
             m.updated_at = now

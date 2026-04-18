@@ -12,34 +12,47 @@ class MedicalRecordResponse(BaseModel):
     id: UUID
     profile_id: UUID
     created_by: UUID
+    title: str | None
     diagnosis_name: str | None
     diagnosis_slug: str | None
     doctor_name: str | None
     hospital_name: str | None
     visit_date: date | None
     specialty: str | None
+    symptoms: list[str] | None
+    test_results: str | None
+    doctor_advice: str | None
     notes: str | None
     created_at: datetime
+    updated_at: datetime
     deleted_at: datetime | None = None
 
 
 class CreateMedicalRecordRequest(BaseModel):
+    title: str | None = Field(None, max_length=255)
     diagnosis_name: str | None = None
     diagnosis_slug: str | None = None
     doctor_name: str | None = Field(None, max_length=255)
     hospital_name: str | None = None
     visit_date: date | None = None
     specialty: str | None = None
+    symptoms: list[str] | None = None
+    test_results: str | None = None
+    doctor_advice: str | None = None
     notes: str | None = None
 
 
 class PatchMedicalRecordRequest(BaseModel):
+    title: str | None = Field(None, max_length=255)
     diagnosis_name: str | None = None
     diagnosis_slug: str | None = None
     doctor_name: str | None = Field(None, max_length=255)
     hospital_name: str | None = None
     visit_date: date | None = None
     specialty: str | None = None
+    symptoms: list[str] | None = None
+    test_results: str | None = None
+    doctor_advice: str | None = None
     notes: str | None = None
 
 

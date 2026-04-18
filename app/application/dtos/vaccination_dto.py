@@ -4,7 +4,9 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.domain.remind_before import RemindBeforeUnit
 
 
 class VaccinationRecommendationResponse(BaseModel):
@@ -13,7 +15,9 @@ class VaccinationRecommendationResponse(BaseModel):
     id: UUID
     code: str | None
     name: str
+    disease_name: str | None
     total_doses: int
+    notes: str | None
     created_at: datetime
 
 
@@ -61,14 +65,34 @@ class CreateVaccinationDoseRequest(BaseModel):
     administered_at: date | None = None
     scheduled_at: date | None = None
     location: str | None = None
+    reaction: str | None = None
     proof_url: str | None = None
+    reminder_enabled: bool = False
+    remind_before_value: int | None = Field(None, ge=1)
+    remind_before_unit: RemindBeforeUnit | None = None
+
+    @model_validator(mode="after")
+    def _reminder_offset(self) -> CreateVaccinationDoseRequest:
+        if not self.reminder_enabled:
+            self.remind_before_value = None
+            self.remind_before_unit = None
+            return self
+        if self.remind_before_value is None or self.remind_before_unit is None:
+            raise ValueError(
+                "remind_before_value and remind_before_unit are required when reminder_enabled is true"
+            )
+        return self
 
 
 class PatchVaccinationDoseRequest(BaseModel):
     administered_at: date | None = None
     scheduled_at: date | None = None
     location: str | None = None
+    reaction: str | None = None
     proof_url: str | None = None
+    reminder_enabled: bool | None = None
+    remind_before_value: int | None = Field(None, ge=1)
+    remind_before_unit: RemindBeforeUnit | None = None
 
 
 DoseStatusLiteral = Literal["ADMINISTERED", "OVERDUE", "SCHEDULED", "UNSCHEDULED"]
@@ -83,6 +107,10 @@ class VaccinationDoseResponse(BaseModel):
     administered_at: date | None
     scheduled_at: date | None
     location: str | None
+    reaction: str | None
     proof_url: str | None
+    reminder_enabled: bool
+    remind_before_value: int | None
+    remind_before_unit: RemindBeforeUnit | None
     dose_status: DoseStatusLiteral
     is_overdue: bool

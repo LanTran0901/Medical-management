@@ -149,6 +149,27 @@ class FamilyInviteModel(Base):
         nullable=True,
     )
 
+    __table_args__ = (
+        sa.CheckConstraint(
+            "(user_id IS NOT NULL) OR (phone_number IS NOT NULL)",
+            name="ck_family_invites_target_required",
+        ),
+        sa.Index(
+            "ix_family_invites_pending_family_user_unique",
+            "family_id",
+            "user_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'PENDING' AND user_id IS NOT NULL"),
+        ),
+        sa.Index(
+            "ix_family_invites_pending_family_phone_unique",
+            "family_id",
+            "phone_number",
+            unique=True,
+            postgresql_where=sa.text("status = 'PENDING' AND phone_number IS NOT NULL"),
+        ),
+    )
+
 
 class FamilyPublicInviteModel(Base):
     __tablename__ = "family_public_invites"

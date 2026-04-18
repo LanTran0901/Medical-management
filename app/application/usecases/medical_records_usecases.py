@@ -47,14 +47,19 @@ class MedicalRecordsService:
             id=m.id,
             profile_id=m.profile_id,
             created_by=m.created_by,
+            title=m.title,
             diagnosis_name=m.diagnosis_name,
             diagnosis_slug=m.diagnosis_slug,
             doctor_name=m.doctor_name,
             hospital_name=m.hospital_name,
             visit_date=m.visit_date,
             specialty=m.specialty,
+            symptoms=m.symptoms,
+            test_results=m.test_results,
+            doctor_advice=m.doctor_advice,
             notes=m.notes,
             created_at=m.created_at,
+            updated_at=m.updated_at,
             deleted_at=m.deleted_at,
         )
 
@@ -82,12 +87,16 @@ class MedicalRecordsService:
         m = await self._medical.create_record(
             profile_id=profile_id,
             created_by=user_id,
+            title=body.title,
             diagnosis_name=body.diagnosis_name,
             diagnosis_slug=body.diagnosis_slug,
             doctor_name=body.doctor_name,
             hospital_name=body.hospital_name,
             visit_date=body.visit_date,
             specialty=body.specialty,
+            symptoms=body.symptoms,
+            test_results=body.test_results,
+            doctor_advice=body.doctor_advice,
             notes=body.notes,
         )
         return self._to_record_response(m)

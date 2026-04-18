@@ -292,7 +292,15 @@ def seed_demo(
                             k=1,
                         ),
                         "allergies": rnd.sample(["Hải sản", "Phấn hoa", "Lông mèo", "Không"], k=1),
-                        "emergency_contact": f"{_rand_full_name(rnd)} - 09{rnd.randint(10000000, 99999999)}",
+                        "emergency_contacts": json.dumps(
+                            [
+                                {
+                                    "name": _rand_full_name(rnd),
+                                    "phone": f"09{rnd.randint(10000000, 99999999)}",
+                                    "relationship": "Người nhà",
+                                }
+                            ]
+                        ),
                         "notes": "Theo dõi sức khỏe định kỳ 6 tháng/lần",
                         "updated_at": now,
                     }
@@ -337,7 +345,15 @@ def seed_demo(
                     "blood_type": _rand_blood(rnd),
                     "chronic_diseases": ["Không"],
                     "allergies": ["Không"],
-                    "emergency_contact": f"{_rand_full_name(rnd)} - 09{rnd.randint(10000000, 99999999)}",
+                    "emergency_contacts": json.dumps(
+                        [
+                            {
+                                "name": _rand_full_name(rnd),
+                                "phone": f"09{rnd.randint(10000000, 99999999)}",
+                                "relationship": "Người nhà",
+                            }
+                        ]
+                    ),
                     "notes": "Hồ sơ trẻ em theo dõi tăng trưởng",
                     "updated_at": now,
                 }
@@ -363,13 +379,13 @@ def seed_demo(
                     {
                         "id": med_id,
                         "family_id": family_id,
+                        "created_by_user_id": family_user_ids[0],
                         "medicine_name": med[0],
-                        "medicine_type": med[1],
                         "expiry_date": date.today() + timedelta(days=rnd.randint(90, 900)),
                         "quantity_stock": Decimal(str(round(rnd.uniform(1, 30), 3))),
                         "unit": med[2],
                         "min_stock_alert": Decimal("3.000"),
-                        "instruction": "Uống sau ăn, bảo quản nơi khô ráo",
+                        "note": "Uống sau ăn, bảo quản nơi khô ráo",
                     }
                 )
 
@@ -568,8 +584,8 @@ def seed_demo(
             conn,
             sa.text(
                 """
-                INSERT INTO health_details (id, profile_id, blood_type, chronic_diseases, allergies, emergency_contact, notes, updated_at)
-                VALUES (:id, :profile_id, :blood_type, :chronic_diseases, :allergies, :emergency_contact, :notes, :updated_at)
+                INSERT INTO health_details (id, profile_id, blood_type, chronic_diseases, allergies, emergency_contacts, notes, updated_at)
+                VALUES (:id, :profile_id, :blood_type, :chronic_diseases, :allergies, (:emergency_contacts)::jsonb, :notes, :updated_at)
                 ON CONFLICT (profile_id) DO NOTHING
                 """
             ),
@@ -592,11 +608,11 @@ def seed_demo(
             conn,
             sa.text(
                 """
-                INSERT INTO medicine_inventory (
-                    id, family_id, medicine_name, medicine_type, expiry_date, quantity_stock, unit, min_stock_alert, instruction
+                INSERT INTO family_medicine_inventory (
+                    id, family_id, created_by_user_id, medicine_name, expiry_date, quantity_stock, unit, min_stock_alert, note
                 )
                 VALUES (
-                    :id, :family_id, :medicine_name, :medicine_type, :expiry_date, :quantity_stock, :unit, :min_stock_alert, :instruction
+                    :id, :family_id, :created_by_user_id, :medicine_name, :expiry_date, :quantity_stock, :unit, :min_stock_alert, :note
                 )
                 ON CONFLICT (id) DO NOTHING
                 """

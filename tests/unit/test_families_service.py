@@ -45,10 +45,12 @@ def _family(fid=None, name="N", code="abc") -> Family:
         family_name=name,
         invite_code=code,
         created_at=_dt(),
+        address="123 Family St",
+        avatar_url="https://example.com/family.png",
     )
 
 
-def _profile(pid=None, owner=None, linked=None, name="P") -> Profile:
+def _profile(pid=None, owner=None, linked=None, name="P", status=None, avatar_url=None) -> Profile:
     now = _dt()
     return Profile(
         id=pid or uuid4(),
@@ -60,8 +62,8 @@ def _profile(pid=None, owner=None, linked=None, name="P") -> Profile:
         height_cm=None,
         weight_kg=None,
         address=None,
-        avatar_url=None,
-        status=None,
+        avatar_url=avatar_url,
+        status=status,
         created_at=now,
         updated_at=now,
         deleted_at=None,
@@ -99,7 +101,7 @@ def _family_invite(
     )
 
 
-def _mem(mid=None, fid=None, pid=None, role=FamilyRole.MEMBER, uid=None) -> FamilyMembership:
+def _mem(mid=None, fid=None, pid=None, role=FamilyRole.MEMBER, uid=None, relation_role=None) -> FamilyMembership:
     return FamilyMembership(
         id=mid or uuid4(),
         family_id=fid or uuid4(),
@@ -107,6 +109,7 @@ def _mem(mid=None, fid=None, pid=None, role=FamilyRole.MEMBER, uid=None) -> Fami
         role=role,
         added_by=uid or uuid4(),
         created_at=_dt(),
+        relation_role=relation_role,
     )
 
 
@@ -291,6 +294,70 @@ async def test_join_uses_explicit_profile_id_when_user_has_multiple_profiles(rep
     assert out["profile_id"] == str(prof_b.id)
     repo.create_membership.assert_awaited_once()
     assert repo.create_membership.await_args.kwargs["profile_id"] == prof_b.id
+
+
+@pytest.mark.asyncio
+async def test_list_linkable_profiles_by_invite_returns_member_summaries(
+    repo: AsyncMock,
+    svc: FamiliesService,
+) -> None:
+    uid = uuid4()
+    fam = _family(name="Linkable", code="invite-ok")
+    owner_profile = _profile(
+        owner=uuid4(),
+        linked=None,
+        name="Nguyen Van A",
+        status="SHADOW",
+        avatar_url="https://example.com/a.png",
+    )
+    linked_profile = _profile(
+        owner=uuid4(),
+        linked=uuid4(),
+        name="Already Linked",
+        status="ACTIVE",
+    )
+    pending_profile = _profile(
+        owner=uuid4(),
+        linked=None,
+        name="Tran Thi B",
+        status="PENDING_LINK",
+        avatar_url=None,
+    )
+    repo.preview_public_invite = AsyncMock(return_value=_invite_preview(fam))
+    repo.get_user_membership_in_family = AsyncMock(return_value=None)
+    repo.get_family = AsyncMock(return_value=fam)
+    repo.list_members_rows = AsyncMock(
+        return_value=[
+            (_mem(fid=fam.id, pid=owner_profile.id, role=FamilyRole.OWNER, relation_role="Cha"), owner_profile),
+            (_mem(fid=fam.id, pid=linked_profile.id, role=FamilyRole.MEMBER, relation_role="Con"), linked_profile),
+            (_mem(fid=fam.id, pid=pending_profile.id, role=FamilyRole.ADMIN, relation_role="Me"), pending_profile),
+        ]
+    )
+
+    out = await svc.list_linkable_profiles_by_invite(uid, fam.invite_code)
+
+    assert out["id"] == fam.id
+    assert out["name"] == fam.family_name
+    assert out["address"] == fam.address
+    assert out["avatar_url"] == fam.avatar_url
+    assert out["invite_code"] == fam.invite_code
+    assert out["created_at"] == fam.created_at
+    assert out["members"] == [
+        {
+            "id": owner_profile.id,
+            "full_name": "Nguyen Van A",
+            "role": FamilyRole.OWNER,
+            "relation_role": "Cha",
+            "avatar_url": "https://example.com/a.png",
+        },
+        {
+            "id": pending_profile.id,
+            "full_name": "Tran Thi B",
+            "role": FamilyRole.ADMIN,
+            "relation_role": "Me",
+            "avatar_url": None,
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -669,9 +736,9 @@ async def test_patch_health_ok(repo: AsyncMock, svc: FamiliesService) -> None:
         blood_type=None,
         chronic_diseases=None,
         allergies=None,
-        emergency_contact=None,
         notes=None,
         updated_at=_dt(),
+        emergency_contacts=[],
     )
     repo.upsert_health = AsyncMock(return_value=hd)
     out = await svc.patch_health(

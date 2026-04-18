@@ -77,14 +77,19 @@ class AccessControlPG(AccessControlPort):
             id=model.id,
             profile_id=model.profile_id,
             created_by=model.created_by,
+            title=model.title,
             diagnosis_name=model.diagnosis_name,
             diagnosis_slug=model.diagnosis_slug,
             doctor_name=model.doctor_name,
             hospital_name=model.hospital_name,
             visit_date=model.visit_date,
             specialty=model.specialty,
+            symptoms=list(model.symptoms) if model.symptoms is not None else None,
+            test_results=model.test_results,
+            doctor_advice=model.doctor_advice,
             notes=model.notes,
             created_at=model.created_at,
+            updated_at=model.updated_at,
             deleted_at=model.deleted_at,
         )
 
@@ -102,7 +107,7 @@ class AccessControlPG(AccessControlPort):
     def _to_medicine_item(model: MedicineInventoryModel) -> MedicineInventory:
         return MedicineInventory(
             id=model.id,
-            family_id=model.family_id,
+            profile_id=model.profile_id,
             medicine_name=model.medicine_name,
             medicine_type=model.medicine_type,
             expiry_date=model.expiry_date,
@@ -110,7 +115,16 @@ class AccessControlPG(AccessControlPort):
             unit=model.unit,
             min_stock_alert=model.min_stock_alert,
             instruction=model.instruction,
+            dosage_value=model.dosage_value,
+            dosage_unit=model.dosage_unit,
+            dosage_per_use_value=model.dosage_per_use_value,
+            dosage_per_use_unit=model.dosage_per_use_unit,
+            use_tags=list(model.use_tags) if model.use_tags is not None else None,
+            storage_location=model.storage_location,
             expiry_alert_days_before=model.expiry_alert_days_before,
+            low_stock_alert_enabled=model.low_stock_alert_enabled,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
         )
 
     @staticmethod
@@ -133,7 +147,11 @@ class AccessControlPG(AccessControlPort):
             administered_at=model.administered_at,
             scheduled_at=model.scheduled_at,
             location=model.location,
+            reaction=model.reaction,
             proof_url=model.proof_url,
+            reminder_enabled=model.reminder_enabled,
+            remind_before_value=model.remind_before_value,
+            remind_before_unit=model.remind_before_unit,
         )
 
     @staticmethod
@@ -242,7 +260,10 @@ class AccessControlPG(AccessControlPort):
         model = await self.session.get(MedicineInventoryModel, item_id)
         if model is None:
             return None
-        return MedicineItemAccessContext(item=self._to_medicine_item(model))
+        family_ids: tuple[UUID, ...] = ()
+        if model.profile_id is not None:
+            family_ids = await self._family_ids_for_profile(model.profile_id)
+        return MedicineItemAccessContext(item=self._to_medicine_item(model), family_ids=family_ids)
 
     async def get_medical_record_context(self, record_id: UUID) -> MedicalRecordAccessContext | None:
         stmt = (

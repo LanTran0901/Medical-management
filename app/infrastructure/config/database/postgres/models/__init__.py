@@ -8,13 +8,24 @@ from app.infrastructure.config.database.postgres.models.family_models import (
     FamilyModel,
     FamilyPublicInviteModel,
 )
-from app.infrastructure.config.database.postgres.models.profile_models import HealthDetailModel, ProfileModel
-from app.infrastructure.config.database.postgres.models.medicine_inventory_model import MedicineInventoryModel
+from app.infrastructure.config.database.postgres.models.profile_models import (
+    HealthDetailModel,
+    HealthMetricReadingModel,
+    ProfileModel,
+)
+from app.infrastructure.config.database.postgres.models.medicine_inventory_model import (
+    FamilyMedicineInventoryModel,
+    MedicineInventoryModel,
+    MedicineReminderModel,
+)
 from app.infrastructure.config.database.postgres.models.medical_record_models import (
     FollowUpAppointmentModel,
     FollowUpReminderActionModel,
     MedicalRecordAttachmentModel,
     MedicalRecordModel,
+)
+from app.infrastructure.config.database.postgres.models.appointment_reminder_models import (
+    AppointmentReminderModel,
 )
 from app.infrastructure.config.database.postgres.models.vaccination_models import (
     UserVaccinationModel,
@@ -37,11 +48,15 @@ __all__ = [
     "FamilyPublicInviteModel",
     "ProfileModel",
     "HealthDetailModel",
+    "HealthMetricReadingModel",
+    "FamilyMedicineInventoryModel",
     "MedicineInventoryModel",
+    "MedicineReminderModel",
     "MedicalRecordModel",
     "MedicalRecordAttachmentModel",
     "FollowUpAppointmentModel",
     "FollowUpReminderActionModel",
+    "AppointmentReminderModel",
     "VaccinationRecommendationModel",
     "UserVaccinationModel",
     "VaccinationDoseModel",

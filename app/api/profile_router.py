@@ -97,7 +97,9 @@ async def get_health(
                 blood_type=None,
                 chronic_diseases=None,
                 allergies=None,
-                emergency_contact=None,
+                drug_allergies=None,
+                food_allergies=None,
+                emergency_contacts=[],
                 notes=None,
                 updated_at=datetime.now(timezone.utc),
             )
