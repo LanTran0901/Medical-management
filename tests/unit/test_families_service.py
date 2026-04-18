@@ -297,6 +297,31 @@ async def test_join_uses_explicit_profile_id_when_user_has_multiple_profiles(rep
 
 
 @pytest.mark.asyncio
+async def test_join_invite_action_accept_returns_full_name(repo: AsyncMock, users: AsyncMock, svc: FamiliesService) -> None:
+    uid = uuid4()
+    fid = uuid4()
+    invite_id = uuid4()
+    invite = _family_invite(iid=invite_id, fid=fid, user_id=uid, role=FamilyRole.MEMBER)
+    profile = _profile(owner=uid, linked=uid, name="Invited Name")
+    membership = _mem(fid=fid, pid=profile.id, role=FamilyRole.MEMBER, uid=invite.invited_by)
+    accepted = _family_invite(iid=invite_id, fid=fid, user_id=uid, role=FamilyRole.MEMBER)
+    accepted.status = FamilyInviteStatus.ACCEPTED
+
+    repo.get_family_invite = AsyncMock(return_value=invite)
+    users.get_by_id = AsyncMock(return_value=_user_entity(uid=uid, phone_number="+15551234567"))
+    repo.list_linked_profiles_for_user = AsyncMock(return_value=[profile])
+    repo.has_membership = AsyncMock(return_value=False)
+    repo.create_membership = AsyncMock(return_value=membership)
+    repo.update_family_invite_status = AsyncMock(return_value=accepted)
+
+    out = await svc.join_family(uid, JoinFamilyRequest(action="accept", invite_id=invite_id))
+
+    assert out["mode"] == "invite_action"
+    assert out["status"] == "accepted"
+    assert out["full_name"] == "Invited Name"
+
+
+@pytest.mark.asyncio
 async def test_list_linkable_profiles_by_invite_returns_member_summaries(
     repo: AsyncMock,
     svc: FamiliesService,

@@ -596,6 +596,11 @@ class InviteActionResponse(BaseModel):
     invite_id: UUID
     status: str
     family_member_id: UUID | None = None
+    full_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("full_name", "fullName"),
+        serialization_alias="fullName",
+    )
 
 
 InviteByPhoneResponse.model_rebuild()

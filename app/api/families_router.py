@@ -281,6 +281,7 @@ async def join_family(
                 invite_id=UUID(str(payload.get("invite_id"))),
                 status=str(payload.get("status")),
                 family_member_id=UUID(str(payload["family_member_id"])) if payload.get("family_member_id") else None,
+                full_name=str(payload.get("full_name")) if payload.get("full_name") is not None else None,
             )
         return payload
     except Exception as e:

@@ -268,6 +268,7 @@ class FamiliesService:
             "invite_id": str(updated.id),
             "status": updated.status.value.lower(),
             "family_member_id": str(membership.id),
+            "full_name": profile.full_name,
         }
 
     async def invite_member_by_phone(

@@ -56,6 +56,7 @@ def test_invite_by_phone_success_owner(client) -> None:
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["status"] == "accepted"
+    assert accepted.json()["fullName"] == "Invited Name"
 
     members = client.get(f"/families/{family_id}/members", headers=auth_headers(owner_tok))
     assert members.status_code == 200, members.text
