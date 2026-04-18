@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.rrule import rrulestr
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dtos.notification_dto import (
@@ -458,7 +459,7 @@ class ProcessDueSchedulePushesUseCase:
             # ── Auto-complete exhausted COUNT schedules ──
             schedule_id: UUID = row["schedule_id"]
             if self._rrule_is_exhausted(rrule_raw, occurrence_date):
-                await self._session.execute(
+                await self.session.execute(
                     text("UPDATE schedules SET status = 'COMPLETED' WHERE id = :sid AND status = 'ACTIVE'"),
                     {"sid": schedule_id},
                 )
@@ -476,14 +477,23 @@ class ProcessDueSchedulePushesUseCase:
                 RETURNING id
                 """
             )
-            r2 = await self.session.execute(
-                ins_receipt,
-                {
-                    "schedule_id": schedule_id,
-                    "occurrence_date": occurrence_date,
-                    "time_slot": time_slot,
-                },
-            )
+            try:
+                r2 = await self.session.execute(
+                    ins_receipt,
+                    {
+                        "schedule_id": schedule_id,
+                        "occurrence_date": occurrence_date,
+                        "time_slot": time_slot,
+                    },
+                )
+            except IntegrityError:
+                # Schedule could be deleted between the initial list query and receipt insert.
+                # Skip gracefully instead of failing the whole dispatch iteration.
+                logger.info(
+                    "Schedule %s disappeared before receipt insert; skipping.",
+                    schedule_id,
+                )
+                continue
             receipt_id = r2.scalar_one_or_none()
             if receipt_id is None:
                 skipped_duplicate += 1
@@ -625,21 +635,37 @@ class ProcessDueSchedulePushesUseCase:
                 continue
 
             snooze_time_slot = snooze_until.strftime("%H:%M")
-            r2 = await self.session.execute(
-                text(
-                    """
-                    INSERT INTO schedule_push_receipts (schedule_id, occurrence_date, time_slot)
-                    VALUES (:schedule_id, :occurrence_date, :time_slot)
-                    ON CONFLICT (schedule_id, occurrence_date, time_slot) DO NOTHING
-                    RETURNING id
-                    """
-                ),
-                {
-                    "schedule_id": schedule_id,
-                    "occurrence_date": override_occurrence_date,
-                    "time_slot": snooze_time_slot,
-                },
-            )
+            try:
+                r2 = await self.session.execute(
+                    text(
+                        """
+                        INSERT INTO schedule_push_receipts (schedule_id, occurrence_date, time_slot)
+                        VALUES (:schedule_id, :occurrence_date, :time_slot)
+                        ON CONFLICT (schedule_id, occurrence_date, time_slot) DO NOTHING
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "schedule_id": schedule_id,
+                        "occurrence_date": override_occurrence_date,
+                        "time_slot": snooze_time_slot,
+                    },
+                )
+            except IntegrityError:
+                # Override row can race with schedule deletion in another request.
+                # Mark override consumed so it does not retry forever.
+                logger.info(
+                    "Snooze override %s skipped because schedule %s no longer exists.",
+                    override_id,
+                    schedule_id,
+                )
+                await self.session.execute(
+                    text(
+                        "UPDATE schedule_snooze_overrides SET consumed_at = now() WHERE id = :id"
+                    ),
+                    {"id": override_id},
+                )
+                continue
             receipt_id = r2.scalar_one_or_none()
             if receipt_id is None:
                 skipped_duplicate += 1
