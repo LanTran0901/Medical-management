@@ -24,6 +24,7 @@ python-multipart = "*"
 google-auth = "*"
 requests = "*"
 firebase-admin = "*"
+python-dateutil = "*"
 
 [dev-packages]
 
