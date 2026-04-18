@@ -128,7 +128,18 @@ class FamilyRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def create_personal_profile(self, *, user_id: UUID, full_name: str) -> Profile:
+    async def create_personal_profile(
+        self,
+        *,
+        user_id: UUID,
+        full_name: str,
+        dob: date | None = None,
+        gender: str | None = None,
+        height_cm: Decimal | None = None,
+        weight_kg: Decimal | None = None,
+        address: str | None = None,
+        avatar_url: str | None = None,
+    ) -> Profile:
         raise NotImplementedError
 
     @abstractmethod

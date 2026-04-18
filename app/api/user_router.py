@@ -83,7 +83,7 @@ async def create_my_personal_profile(
     svc: FamiliesService = Depends(get_families_service),
 ) -> ProfileResponse:
     try:
-        profile = await svc.create_my_personal_profile(current_user.id, body.full_name)
+        profile = await svc.create_my_personal_profile(current_user.id, body)
         return ProfileResponse.from_entity(profile)
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message or "Conflict") from exc

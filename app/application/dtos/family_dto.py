@@ -119,6 +119,12 @@ class InviteByPhoneRequest(BaseModel):
 
 class CreatePersonalProfileRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
+    dob: date | None = Field(default=None, validation_alias=AliasChoices("dob", "date_of_birth"))
+    gender: str | None = None
+    height_cm: Decimal | None = None
+    weight_kg: Decimal | None = None
+    address: str | None = None
+    avatar_url: str | None = None
 
 
 class InvitePreviewResponse(BaseModel):

@@ -10,6 +10,7 @@ from app.core.config import settings as app_settings
 
 from app.application.dtos.family_dto import (
     CreateFamilyRequest,
+    CreatePersonalProfileRequest,
     CreateProfileInFamilyRequest,
     FamilyInviteListRequest,
     InviteByPhoneRequest,
@@ -462,8 +463,17 @@ class FamiliesService:
     async def list_family_ids_for_profile(self, profile_id: UUID) -> list[UUID]:
         return await self._repo.list_family_ids_for_profile(profile_id)
 
-    async def create_my_personal_profile(self, user_id: UUID, full_name: str) -> Profile:
-        return await self._repo.create_personal_profile(user_id=user_id, full_name=full_name)
+    async def create_my_personal_profile(self, user_id: UUID, body: CreatePersonalProfileRequest) -> Profile:
+        return await self._repo.create_personal_profile(
+            user_id=user_id,
+            full_name=body.full_name,
+            dob=body.dob,
+            gender=body.gender,
+            height_cm=body.height_cm,
+            weight_kg=body.weight_kg,
+            address=body.address,
+            avatar_url=body.avatar_url,
+        )
 
     async def preview_invite(self, invite_code: str) -> PublicInvitePreview:
         prev = await self._repo.preview_public_invite(invite_code)

@@ -464,11 +464,23 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         *,
         user_id: UUID,
         full_name: str,
+        dob: date | None = None,
+        gender: str | None = None,
+        height_cm: Decimal | None = None,
+        weight_kg: Decimal | None = None,
+        address: str | None = None,
+        avatar_url: str | None = None,
     ) -> Profile:
         prof = ProfileModel(
             owner_user_id=user_id,
             linked_user_id=user_id,
             full_name=full_name.strip(),
+            dob=dob,
+            gender=gender,
+            height_cm=height_cm,
+            weight_kg=weight_kg,
+            address=address,
+            avatar_url=avatar_url,
         )
         self.session.add(prof)
         await self.session.flush()
