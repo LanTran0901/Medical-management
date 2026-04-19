@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -100,6 +101,23 @@ class UserMeMedicineInventoryItem(MedicineInventoryResponse):
     medicine_reminder: MedicineReminderResponse | None = None
 
 
+class HealthMetricReadingResponse(BaseModel):
+    """Một bản ghi chỉ số sức khỏe (huyết áp, nhịp tim, cân, đường huyết, …)."""
+
+    id: UUID
+    profile_id: UUID
+    metric_type: str
+    measured_at: datetime
+    systolic: int | None = None
+    diastolic: int | None = None
+    heart_rate: int | None = None
+    weight_kg: Decimal | None = None
+    glucose_mmol_l: Decimal | None = None
+    status: str | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
 class UserMeHealthProfileResponse(BaseModel):
     """Sức khỏe + bệnh án + tiêm chủng (personal profile) — dùng cache tab Home / Sức khỏe."""
 
@@ -116,6 +134,7 @@ class UserMeHealthProfileResponse(BaseModel):
     vaccinations: list[UserVaccinationWithDosesResponse] = Field(default_factory=list)
     medicine_inventory: list[UserMeMedicineInventoryItem] = Field(default_factory=list)
     appointment_reminders: list[AppointmentReminderResponse] = Field(default_factory=list)
+    health_metrics: list[HealthMetricReadingResponse] = Field(default_factory=list)
 
     @classmethod
     def from_parts(
@@ -127,9 +146,11 @@ class UserMeHealthProfileResponse(BaseModel):
         *,
         medicine_inventory: list[UserMeMedicineInventoryItem] | None = None,
         appointment_reminders: list[AppointmentReminderResponse] | None = None,
+        health_metrics: list[HealthMetricReadingResponse] | None = None,
     ) -> UserMeHealthProfileResponse:
         med_inv = medicine_inventory if medicine_inventory is not None else []
         appt = appointment_reminders if appointment_reminders is not None else []
+        metrics = health_metrics if health_metrics is not None else []
         if health is not None:
             return cls(
                 profile_id=health.profile_id,
@@ -148,6 +169,7 @@ class UserMeHealthProfileResponse(BaseModel):
                 vaccinations=vaccinations,
                 medicine_inventory=med_inv,
                 appointment_reminders=appt,
+                health_metrics=metrics,
             )
         return cls(
             profile_id=profile_id,
@@ -163,6 +185,7 @@ class UserMeHealthProfileResponse(BaseModel):
             vaccinations=vaccinations,
             medicine_inventory=med_inv,
             appointment_reminders=appt,
+            health_metrics=metrics,
         )
 
 

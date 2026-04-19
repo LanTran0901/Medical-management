@@ -32,6 +32,7 @@ from app.api.dependencies import (
     get_appointment_reminder_read_service,
     get_current_user,
     get_families_service,
+    get_health_metric_readings_service,
     get_medical_records_service,
     get_medicine_inventory_service,
     get_vaccination_service,
@@ -41,6 +42,7 @@ from app.application.usecases.appointment_reminder_read_usecases import Appointm
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medical_records_usecases import MedicalRecordsService
 from app.application.usecases.medicine_inventory_usecases import MedicineInventoryService
+from app.application.usecases.health_metric_reading_usecases import HealthMetricReadingsService
 from app.application.usecases.vaccination_usecases import VaccinationService
 from app.domain.entities.user import User
 
@@ -152,7 +154,8 @@ async def get_current_user_profile_summary(
     description=(
         "Trả `user`, `profile` (personal profile nếu có), và `health_profile`: "
         "chi tiết sức khỏe + `medical_records` + `vaccinations` (kèm `doses`) + "
-        "`medicine_inventory` (kèm `medicine_reminder` nếu có) + `appointment_reminders`. "
+        "`medicine_inventory` (kèm `medicine_reminder` nếu có) + `appointment_reminders` + "
+        "`health_metrics` (chỉ số đo theo thời gian). "
         "Khi chưa có personal profile: `profile` và `health_profile` là null."
     ),
 )
@@ -165,6 +168,7 @@ async def get_current_user_profile(
     vaccination: VaccinationService = Depends(get_vaccination_service),
     medicine_inventory: MedicineInventoryService = Depends(get_medicine_inventory_service),
     appointment_reminders: AppointmentReminderReadService = Depends(get_appointment_reminder_read_service),
+    health_metrics_svc: HealthMetricReadingsService = Depends(get_health_metric_readings_service),
 ) -> UserMeResponse:
     try:
         user = await GetUserUseCase(repository).execute(current_user.id)
@@ -180,6 +184,9 @@ async def get_current_user_profile(
 
     profile_ids = [p.id for p in profile_entities]
     records_by_profile = await medical.list_records_for_profiles(
+        profile_ids, current_user.id, skip_access_check=True
+    )
+    metrics_by_profile = await health_metrics_svc.list_for_profiles(
         profile_ids, current_user.id, skip_access_check=True
     )
 
@@ -200,6 +207,7 @@ async def get_current_user_profile(
         appt_items = await appointment_reminders.list_for_profile(
             profile_ent.id, current_user.id, skip_access_check=True
         )
+        metric_items = metrics_by_profile.get(profile_ent.id, [])
         health_bundle = UserMeHealthProfileResponse.from_parts(
             profile_id=profile_ent.id,
             health=health_ent,
@@ -207,6 +215,7 @@ async def get_current_user_profile(
             vaccinations=vaccs,
             medicine_inventory=medicine_items,
             appointment_reminders=appt_items,
+            health_metrics=metric_items,
         )
         bundles.append(
             UserMeProfileBundleResponse(

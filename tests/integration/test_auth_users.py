@@ -158,6 +158,7 @@ def test_users_me_bundle_includes_health_profile_after_personal_profile(client) 
     assert isinstance(hp["vaccinations"], list)
     assert hp["medicine_inventory"] == []
     assert hp["appointment_reminders"] == []
+    assert hp["health_metrics"] == []
 
 
 def test_users_me_returns_all_linked_profiles(client) -> None:
