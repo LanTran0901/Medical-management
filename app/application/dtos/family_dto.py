@@ -11,6 +11,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from app.domain.entities.family import Family, FamilyInvite, FamilyInviteInboxItem, FamilyMembership, FamilyRole
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.profile import Profile, ProfileStatus
+from app.domain.services.blood_type_codec import format_blood_type_for_api, normalize_blood_type_to_db
 
 
 E164_PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
@@ -201,6 +202,15 @@ class CreateProxyHealthPayload(BaseModel):
     food_allergies: list[str] | None = None
     emergency_contacts: list[EmergencyContactItem] | None = None
 
+    @field_validator("blood_type", mode="before")
+    @classmethod
+    def normalize_blood_type(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return v  # type: ignore[return-value]
+        return normalize_blood_type_to_db(v)
+
     @field_validator("emergency_contacts")
     @classmethod
     def emergency_contacts_max(
@@ -266,7 +276,7 @@ class HealthDetailResponse(BaseModel):
     def from_entity(cls, e: HealthDetail) -> HealthDetailResponse:
         return cls(
             profile_id=e.profile_id,
-            blood_type=e.blood_type,
+            blood_type=format_blood_type_for_api(e.blood_type),
             chronic_diseases=e.chronic_diseases,
             allergies=e.allergies,
             drug_allergies=e.drug_allergies,
@@ -291,6 +301,15 @@ class PatchHealthDetailRequest(BaseModel):
     food_allergies: list[str] | None = None
     emergency_contacts: list[EmergencyContactItem] | None = None
     notes: str | None = None
+
+    @field_validator("blood_type", mode="before")
+    @classmethod
+    def normalize_blood_type(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return v  # type: ignore[return-value]
+        return normalize_blood_type_to_db(v)
 
     @field_validator("emergency_contacts")
     @classmethod
@@ -452,7 +471,7 @@ class FamilyMemberHealthResponse(BaseModel):
             else []
         )
         return cls(
-            blood_type=h.blood_type if h else None,
+            blood_type=format_blood_type_for_api(h.blood_type) if h else None,
             chronic_conditions=list(h.chronic_diseases or []) if h else [],
             allergies=list(h.allergies or []) if h else [],
             drug_allergies=list(h.drug_allergies or []) if h else [],

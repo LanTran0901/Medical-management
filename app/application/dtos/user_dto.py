@@ -13,6 +13,7 @@ from app.application.dtos.vaccination_dto import UserVaccinationWithDosesRespons
 from app.domain.entities.appointment_reminder import AppointmentReminder
 from app.domain.entities.health_detail import HealthDetail
 from app.domain.entities.user import User, UserStatus
+from app.domain.services.blood_type_codec import format_blood_type_for_api
 from app.domain.remind_before import RemindBeforeUnit
 
 
@@ -154,7 +155,7 @@ class UserMeHealthProfileResponse(BaseModel):
         if health is not None:
             return cls(
                 profile_id=health.profile_id,
-                blood_type=health.blood_type,
+                blood_type=format_blood_type_for_api(health.blood_type),
                 chronic_diseases=health.chronic_diseases,
                 allergies=health.allergies,
                 drug_allergies=health.drug_allergies,
