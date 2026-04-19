@@ -25,6 +25,7 @@ google-auth = "*"
 requests = "*"
 firebase-admin = "*"
 python-dateutil = "*"
+tzdata = "*"
 
 [dev-packages]
 

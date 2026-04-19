@@ -150,7 +150,10 @@ def _ensure_multilingual_e5_registered() -> None:
 
 
 @lru_cache(maxsize=1)
-def get_embedding_model() -> TextEmbedding:
+def get_embedding_model():
+    """Loads fastembed/onnxruntime on first call — not at app import time (Windows DLL issues)."""
+    from fastembed import TextEmbedding
+
     model_name = settings.rag_embedding_model
     try:
         return TextEmbedding(model_name=model_name)
