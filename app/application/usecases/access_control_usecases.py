@@ -103,9 +103,11 @@ class AccessControlService:
         context = await self._access.get_profile_context(profile_id)
         if context is None:
             raise NotFoundError("Profile not found")
+        if self._is_self_profile(context, user_id):
+            return context
         if await self._has_family_admin_membership(user_id, context.family_ids):
             return context
-        raise ForbiddenError("OWNER or ADMIN required to edit health details")
+        raise ForbiddenError("Not allowed to edit health details for this profile")
 
     async def require_medical_profile_view(self, profile_id: UUID, user_id: UUID) -> ProfileAccessContext:
         return await self.require_profile_read(profile_id, user_id)

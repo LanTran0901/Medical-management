@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -66,3 +68,58 @@ class HealthMetricReadingRepositoryPG(HealthMetricReadingRepositoryPort):
             ent = self._to_entity(row)
             out[ent.profile_id].append(ent)
         return out
+
+    async def get_by_id(self, reading_id: UUID) -> HealthMetricReading | None:
+        m = await self.session.get(HealthMetricReadingModel, reading_id)
+        if m is None or m.deleted_at is not None:
+            return None
+        return self._to_entity(m)
+
+    async def create(
+        self,
+        *,
+        profile_id: UUID,
+        metric_type: str,
+        measured_at: datetime,
+        systolic: int | None,
+        diastolic: int | None,
+        heart_rate: int | None,
+        weight_kg: Decimal | None,
+        glucose_mmol_l: Decimal | None,
+        status: str | None,
+        notes: str | None,
+    ) -> HealthMetricReading:
+        m = HealthMetricReadingModel(
+            profile_id=profile_id,
+            metric_type=metric_type,
+            measured_at=measured_at,
+            systolic=systolic,
+            diastolic=diastolic,
+            heart_rate=heart_rate,
+            weight_kg=weight_kg,
+            glucose_mmol_l=glucose_mmol_l,
+            status=status,
+            notes=notes,
+        )
+        self.session.add(m)
+        await self.session.flush()
+        await self.session.refresh(m)
+        return self._to_entity(m)
+
+    async def update(self, reading_id: UUID, fields: dict[str, object]) -> HealthMetricReading | None:
+        m = await self.session.get(HealthMetricReadingModel, reading_id)
+        if m is None or m.deleted_at is not None:
+            return None
+        for k, v in fields.items():
+            setattr(m, k, v)
+        await self.session.flush()
+        await self.session.refresh(m)
+        return self._to_entity(m)
+
+    async def soft_delete(self, reading_id: UUID) -> bool:
+        m = await self.session.get(HealthMetricReadingModel, reading_id)
+        if m is None or m.deleted_at is not None:
+            return False
+        m.deleted_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return True

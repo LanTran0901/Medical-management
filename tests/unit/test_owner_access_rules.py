@@ -197,3 +197,65 @@ async def test_cannot_demote_current_owner_without_transfer() -> None:
             PatchMembershipRoleRequest(role=FamilyRole.ADMIN),
         )
     repo.update_membership_role.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_require_profile_health_edit_allows_linked_user_even_without_family_admin() -> None:
+    user_id = uuid4()
+    profile = _profile(owner_user_id=user_id, linked_user_id=user_id)
+    ctx = ProfileAccessContext(profile=profile, family_ids=tuple())
+    port = AsyncMock()
+    port.get_profile_context.return_value = ctx
+    svc = AccessControlService(port)
+
+    out = await svc.require_profile_health_edit(profile.id, user_id)
+    assert out is ctx
+    port.list_user_memberships_for_families.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_require_profile_health_edit_allows_owner_without_linked_user() -> None:
+    owner_id = uuid4()
+    profile = _profile(owner_user_id=owner_id, linked_user_id=None)
+    ctx = ProfileAccessContext(profile=profile, family_ids=tuple())
+    port = AsyncMock()
+    port.get_profile_context.return_value = ctx
+    svc = AccessControlService(port)
+
+    out = await svc.require_profile_health_edit(profile.id, owner_id)
+    assert out is ctx
+
+
+@pytest.mark.asyncio
+async def test_require_profile_health_edit_forbids_member_for_other_profile() -> None:
+    family_id = uuid4()
+    other_user = uuid4()
+    profile = _profile(owner_user_id=other_user, linked_user_id=other_user)
+    ctx = ProfileAccessContext(profile=profile, family_ids=(family_id,))
+    port = AsyncMock()
+    port.get_profile_context.return_value = ctx
+    port.list_user_memberships_for_families.return_value = [
+        _membership(family_id=family_id, role=FamilyRole.MEMBER),
+    ]
+    svc = AccessControlService(port)
+    actor = uuid4()
+
+    with pytest.raises(ForbiddenError, match="Not allowed to edit health details"):
+        await svc.require_profile_health_edit(profile.id, actor)
+
+
+@pytest.mark.asyncio
+async def test_require_profile_health_edit_allows_family_admin_for_other_profile() -> None:
+    family_id = uuid4()
+    profile = _profile()
+    ctx = ProfileAccessContext(profile=profile, family_ids=(family_id,))
+    port = AsyncMock()
+    port.get_profile_context.return_value = ctx
+    port.list_user_memberships_for_families.return_value = [
+        _membership(family_id=family_id, role=FamilyRole.ADMIN),
+    ]
+    svc = AccessControlService(port)
+    admin_id = uuid4()
+
+    out = await svc.require_profile_health_edit(profile.id, admin_id)
+    assert out is ctx
