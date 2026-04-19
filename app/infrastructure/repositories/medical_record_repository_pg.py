@@ -62,6 +62,26 @@ class MedicalRecordRepositoryPG(MedicalRecordRepositoryPort):
         r = await self.session.execute(stmt)
         return [self._to_record(row) for row in r.scalars().all()]
 
+    async def list_records_for_profiles(
+        self, profile_ids: list[UUID]
+    ) -> dict[UUID, list[MedicalRecord]]:
+        if not profile_ids:
+            return {}
+        stmt = (
+            select(MedicalRecordModel)
+            .where(
+                MedicalRecordModel.profile_id.in_(profile_ids),
+                MedicalRecordModel.deleted_at.is_(None),
+            )
+            .order_by(MedicalRecordModel.profile_id, MedicalRecordModel.created_at.desc())
+        )
+        r = await self.session.execute(stmt)
+        out: dict[UUID, list[MedicalRecord]] = {pid: [] for pid in profile_ids}
+        for row in r.scalars().all():
+            rec = self._to_record(row)
+            out[rec.profile_id].append(rec)
+        return out
+
     async def get_record(self, record_id: UUID, profile_id: UUID) -> MedicalRecord | None:
         stmt = select(MedicalRecordModel).where(
             MedicalRecordModel.id == record_id,

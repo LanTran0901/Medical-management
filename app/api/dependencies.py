@@ -73,6 +73,12 @@ def get_families_service(
     )
 
 
+def get_access_control_service(
+    session: AsyncSession = Depends(get_session),
+) -> AccessControlService:
+    return AccessControlService(AccessControlPG(session))
+
+
 async def get_family_membership(
     family_id: UUID,
     user: Annotated[User, Depends(get_current_user)],

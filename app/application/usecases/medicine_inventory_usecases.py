@@ -109,8 +109,11 @@ class MedicineInventoryService:
         self,
         profile_id: UUID,
         user_id: UUID,
+        *,
+        skip_access_check: bool = False,
     ) -> list[UserMeMedicineInventoryItem]:
-        await self._access.require_profile_read(profile_id, user_id)
+        if not skip_access_check:
+            await self._access.require_profile_read(profile_id, user_id)
         rows = await self._repo.list_by_profile_id(profile_id)
         ids = [m.id for m in rows]
         reminders = await self._repo.list_medicine_reminders_by_inventory_ids(ids)

@@ -182,3 +182,20 @@ class UserMeResponse(BaseModel):
     profiles: list[UserMeProfileBundleResponse] = Field(default_factory=list)
     profile: ProfileResponse | None = None
     health_profile: UserMeHealthProfileResponse | None = None
+
+
+class UserMeProfileSummaryResponse(BaseModel):
+    """Một profile liên kết + danh sách family (không tải bệnh án / tiêm / tủ thuốc)."""
+
+    profile: ProfileResponse
+    family_ids: list[UUID] = Field(default_factory=list)
+    family_count: int = 0
+
+
+class UserMeSummaryResponse(BaseModel):
+    """GET /users/me/summary — phản hồi nhẹ cho bootstrap hoặc lazy-load full GET /users/me."""
+
+    user: UserResponse
+    profiles: list[UserMeProfileSummaryResponse] = Field(default_factory=list)
+    profile: ProfileResponse | None = None
+    health_profile: UserMeHealthProfileResponse | None = None

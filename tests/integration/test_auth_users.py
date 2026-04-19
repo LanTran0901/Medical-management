@@ -91,6 +91,49 @@ def test_users_me_returns_current_user(client) -> None:
     assert me.get("health_profile") is None
 
 
+def test_users_me_summary_lightweight_no_profiles(client) -> None:
+    suf = register_user(client)
+    token = login_access_token(client, suf)
+    r = client.get("/users/me/summary", headers=auth_headers(token))
+    assert r.status_code == 200, r.text
+    me = r.json()
+    assert me["user"]["email"] == f"u{suf}@test.local"
+    assert me["profiles"] == []
+    assert me.get("profile") is None
+    assert me.get("health_profile") is None
+
+
+def test_users_me_summary_two_profiles_no_health_bundle(client) -> None:
+    suf = register_user(client)
+    token = login_access_token(client, suf)
+    assert (
+        client.post(
+            "/users/me/personal-profile",
+            json={"full_name": "S1"},
+            headers=auth_headers(token),
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            "/users/me/personal-profile",
+            json={"full_name": "S2"},
+            headers=auth_headers(token),
+        ).status_code
+        == 201
+    )
+    r = client.get("/users/me/summary", headers=auth_headers(token))
+    assert r.status_code == 200, r.text
+    me = r.json()
+    assert len(me["profiles"]) == 2
+    for item in me["profiles"]:
+        assert "profile" in item
+        assert "family_ids" in item
+        assert "family_count" in item
+        assert "health_profile" not in item
+    assert me.get("health_profile") is None
+
+
 def test_users_me_bundle_includes_health_profile_after_personal_profile(client) -> None:
     suf = register_user(client)
     token = login_access_token(client, suf)

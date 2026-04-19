@@ -10,6 +10,12 @@ class MedicalRecordRepositoryPort:
     async def list_records_for_profile(self, profile_id: UUID) -> list[MedicalRecord]:
         raise NotImplementedError
 
+    async def list_records_for_profiles(
+        self, profile_ids: list[UUID]
+    ) -> dict[UUID, list[MedicalRecord]]:
+        """All non-deleted records for many profiles (single query; GET /users/me optimization)."""
+        raise NotImplementedError
+
     async def get_record(self, record_id: UUID, profile_id: UUID) -> MedicalRecord | None:
         raise NotImplementedError
 

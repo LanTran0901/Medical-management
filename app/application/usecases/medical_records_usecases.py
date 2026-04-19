@@ -72,10 +72,35 @@ class MedicalRecordsService:
             file_url=m.file_url,
         )
 
-    async def list_records(self, profile_id: UUID, user_id: UUID) -> list[MedicalRecordResponse]:
-        await self._access.require_medical_profile_view(profile_id, user_id)
+    async def list_records(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        *,
+        skip_access_check: bool = False,
+    ) -> list[MedicalRecordResponse]:
+        if not skip_access_check:
+            await self._access.require_medical_profile_view(profile_id, user_id)
         rows = await self._medical.list_records_for_profile(profile_id)
         return [self._to_record_response(m) for m in rows]
+
+    async def list_records_for_profiles(
+        self,
+        profile_ids: list[UUID],
+        user_id: UUID,
+        *,
+        skip_access_check: bool = False,
+    ) -> dict[UUID, list[MedicalRecordResponse]]:
+        if not profile_ids:
+            return {}
+        if not skip_access_check:
+            for pid in profile_ids:
+                await self._access.require_medical_profile_view(pid, user_id)
+        rows_by = await self._medical.list_records_for_profiles(profile_ids)
+        return {
+            pid: [self._to_record_response(m) for m in rows]
+            for pid, rows in rows_by.items()
+        }
 
     async def create_record(
         self,

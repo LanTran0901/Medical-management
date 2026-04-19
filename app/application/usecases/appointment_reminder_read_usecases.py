@@ -22,7 +22,9 @@ class AppointmentReminderReadService:
         user_id: UUID,
         *,
         limit: int | None = None,
+        skip_access_check: bool = False,
     ) -> list[AppointmentReminderResponse]:
-        await self._access.require_profile_read(profile_id, user_id)
+        if not skip_access_check:
+            await self._access.require_profile_read(profile_id, user_id)
         rows = await self._repo.list_by_profile_id(profile_id, limit=limit)
         return [AppointmentReminderResponse.from_entity(r) for r in rows]

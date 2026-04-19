@@ -12,7 +12,9 @@ from app.application.dtos.user_dto import (
     UpdateUserRequest,
     UserMeHealthProfileResponse,
     UserMeProfileBundleResponse,
+    UserMeProfileSummaryResponse,
     UserMeResponse,
+    UserMeSummaryResponse,
     UserResponse,
 )
 from app.application.dtos.family_dto import CreatePersonalProfileRequest, ProfileResponse
@@ -26,6 +28,7 @@ from app.application.usecases.user_usecases import (
 from app.infrastructure.config.database.postgres.connection import get_session
 from app.infrastructure.repositories.user_repository_pg import UserRepositoryPG
 from app.api.dependencies import (
+    get_access_control_service,
     get_appointment_reminder_read_service,
     get_current_user,
     get_families_service,
@@ -33,6 +36,7 @@ from app.api.dependencies import (
     get_medicine_inventory_service,
     get_vaccination_service,
 )
+from app.application.usecases.access_control_usecases import AccessControlService
 from app.application.usecases.appointment_reminder_read_usecases import AppointmentReminderReadService
 from app.application.usecases.family_usecases import FamiliesService
 from app.application.usecases.medical_records_usecases import MedicalRecordsService
@@ -96,6 +100,52 @@ async def create_my_personal_profile(
 
 
 @router.get(
+    "/me/summary",
+    response_model=UserMeSummaryResponse,
+    summary="Get current user — lightweight (profiles + families only)",
+    description=(
+        "Dùng khi cần nhanh: `user` + mỗi profile liên kết + `family_ids`. "
+        "Không tải medical_records, vaccinations, medicine, appointment_reminders, health. "
+        "Sau đó FE có thể gọi `GET /users/me` để bundle đầy đủ."
+    ),
+)
+async def get_current_user_profile_summary(
+    current_user: User = Depends(get_current_user),
+    repository: UserRepositoryPG = Depends(get_user_repository),
+    access: AccessControlService = Depends(get_access_control_service),
+    families: FamiliesService = Depends(get_families_service),
+) -> UserMeSummaryResponse:
+    try:
+        user = await GetUserUseCase(repository).execute(current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    user_resp = UserResponse.from_entity(user)
+    profile_entities = await families.list_my_linked_profiles(current_user.id, profile_scope="all")
+    if not profile_entities:
+        return UserMeSummaryResponse(user=user_resp, profiles=[], profile=None, health_profile=None)
+
+    summaries: list[UserMeProfileSummaryResponse] = []
+    for profile_ent in profile_entities:
+        await access.require_profile_read(profile_ent.id, current_user.id)
+        profile_resp = ProfileResponse.from_entity(profile_ent)
+        family_ids = await families.list_family_ids_for_profile(profile_ent.id)
+        summaries.append(
+            UserMeProfileSummaryResponse(
+                profile=profile_resp,
+                family_ids=family_ids,
+                family_count=len(family_ids),
+            )
+        )
+
+    return UserMeSummaryResponse(
+        user=user_resp,
+        profiles=summaries,
+        profile=summaries[0].profile,
+        health_profile=None,
+    )
+
+
+@router.get(
     "/me",
     response_model=UserMeResponse,
     summary="Get current user bundle (cache Home / Health)",
@@ -109,6 +159,7 @@ async def create_my_personal_profile(
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user),
     repository: UserRepositoryPG = Depends(get_user_repository),
+    access: AccessControlService = Depends(get_access_control_service),
     families: FamiliesService = Depends(get_families_service),
     medical: MedicalRecordsService = Depends(get_medical_records_service),
     vaccination: VaccinationService = Depends(get_vaccination_service),
@@ -124,17 +175,31 @@ async def get_current_user_profile(
     if not profile_entities:
         return UserMeResponse(user=user_resp, profiles=[], profile=None, health_profile=None)
 
+    for profile_ent in profile_entities:
+        await access.require_profile_read(profile_ent.id, current_user.id)
+
+    profile_ids = [p.id for p in profile_entities]
+    records_by_profile = await medical.list_records_for_profiles(
+        profile_ids, current_user.id, skip_access_check=True
+    )
+
     bundles: list[UserMeProfileBundleResponse] = []
     for profile_ent in profile_entities:
         profile_resp = ProfileResponse.from_entity(profile_ent)
-        records = await medical.list_records(profile_ent.id, current_user.id)
-        vaccs = await vaccination.list_profile_vaccinations_with_doses(profile_ent.id, current_user.id)
-        health_ent = await families.get_health_by_profile_id(profile_ent.id, current_user.id)
+        records = records_by_profile.get(profile_ent.id, [])
+        vaccs = await vaccination.list_profile_vaccinations_with_doses(
+            profile_ent.id, current_user.id, skip_access_check=True
+        )
+        health_ent = await families.get_health_by_profile_id(
+            profile_ent.id, current_user.id, skip_access_check=True
+        )
         family_ids = await families.list_family_ids_for_profile(profile_ent.id)
         medicine_items = await medicine_inventory.list_for_profile_with_reminders(
-            profile_ent.id, current_user.id
+            profile_ent.id, current_user.id, skip_access_check=True
         )
-        appt_items = await appointment_reminders.list_for_profile(profile_ent.id, current_user.id)
+        appt_items = await appointment_reminders.list_for_profile(
+            profile_ent.id, current_user.id, skip_access_check=True
+        )
         health_bundle = UserMeHealthProfileResponse.from_parts(
             profile_id=profile_ent.id,
             health=health_ent,

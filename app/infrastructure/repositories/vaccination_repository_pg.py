@@ -167,6 +167,25 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         r = await self.session.execute(stmt)
         return int(r.scalar_one() or 0)
 
+    async def count_administered_doses_for_uv_ids(
+        self, user_vaccination_ids: list[UUID]
+    ) -> dict[UUID, int]:
+        if not user_vaccination_ids:
+            return {}
+        stmt = (
+            select(
+                VaccinationDoseModel.user_vaccination_id,
+                sa.func.count().label("cnt"),
+            )
+            .where(
+                VaccinationDoseModel.user_vaccination_id.in_(user_vaccination_ids),
+                VaccinationDoseModel.administered_at.isnot(None),
+            )
+            .group_by(VaccinationDoseModel.user_vaccination_id)
+        )
+        r = await self.session.execute(stmt)
+        return {row[0]: int(row[1] or 0) for row in r.all()}
+
     async def list_doses(self, user_vaccination_id: UUID) -> list[VaccinationDose]:
         stmt = (
             select(VaccinationDoseModel)
@@ -175,6 +194,26 @@ class VaccinationRepositoryPG(VaccinationRepositoryPort):
         )
         r = await self.session.execute(stmt)
         return [self._to_dose(row) for row in r.scalars().all()]
+
+    async def list_doses_for_user_vaccination_ids(
+        self, user_vaccination_ids: list[UUID]
+    ) -> dict[UUID, list[VaccinationDose]]:
+        if not user_vaccination_ids:
+            return {}
+        stmt = (
+            select(VaccinationDoseModel)
+            .where(VaccinationDoseModel.user_vaccination_id.in_(user_vaccination_ids))
+            .order_by(
+                VaccinationDoseModel.user_vaccination_id,
+                VaccinationDoseModel.dose_index,
+            )
+        )
+        r = await self.session.execute(stmt)
+        out: dict[UUID, list[VaccinationDose]] = {}
+        for row in r.scalars().all():
+            d = self._to_dose(row)
+            out.setdefault(d.user_vaccination_id, []).append(d)
+        return out
 
     async def get_dose_by_id(self, dose_id: UUID) -> VaccinationDose | None:
         model = await self.session.get(VaccinationDoseModel, dose_id)

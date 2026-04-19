@@ -792,8 +792,15 @@ class FamiliesService:
             raise ConflictError("Profile already linked or not found")
         return p
 
-    async def get_health_by_profile_id(self, profile_id: UUID, user_id: UUID) -> HealthDetail | None:
-        await self._access.require_profile_read(profile_id, user_id)
+    async def get_health_by_profile_id(
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        *,
+        skip_access_check: bool = False,
+    ) -> HealthDetail | None:
+        if not skip_access_check:
+            await self._access.require_profile_read(profile_id, user_id)
         return await self._repo.get_health(profile_id)
 
     async def patch_health_by_profile_id(

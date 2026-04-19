@@ -108,12 +108,12 @@ class VaccinationService:
             is_overdue=overdue,
         )
 
-    async def _to_uv_response(
+    def _to_uv_response_with_count(
         self,
         uv: UserVaccination,
         rec: VaccinationRecommendation,
+        doses_administered_count: int,
     ) -> UserVaccinationResponse:
-        count = await self._vac.count_administered_doses(uv.id)
         return UserVaccinationResponse(
             id=uv.id,
             profile_id=uv.profile_id,
@@ -123,33 +123,59 @@ class VaccinationService:
             user_id=uv.user_id,
             status=uv.status,
             created_at=uv.created_at,
-            doses_administered_count=count,
+            doses_administered_count=doses_administered_count,
         )
+
+    async def _to_uv_response(
+        self,
+        uv: UserVaccination,
+        rec: VaccinationRecommendation,
+    ) -> UserVaccinationResponse:
+        count = await self._vac.count_administered_doses(uv.id)
+        return self._to_uv_response_with_count(uv, rec, count)
 
     async def list_recommendations(self) -> list[VaccinationRecommendationResponse]:
         rows = await self._vac.list_recommendations()
         return [self._to_rec_response(m) for m in rows]
 
     async def list_profile_vaccinations(
-        self, profile_id: UUID, user_id: UUID
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        *,
+        skip_access_check: bool = False,
     ) -> list[UserVaccinationResponse]:
-        await self._access.require_medical_profile_view(profile_id, user_id)
+        if not skip_access_check:
+            await self._access.require_medical_profile_view(profile_id, user_id)
         pairs = await self._vac.list_user_vaccinations_for_profile(profile_id)
-        out: list[UserVaccinationResponse] = []
-        for uv, rec in pairs:
-            out.append(await self._to_uv_response(uv, rec))
-        return out
+        if not pairs:
+            return []
+        uv_ids = [uv.id for uv, _ in pairs]
+        counts = await self._vac.count_administered_doses_for_uv_ids(uv_ids)
+        return [
+            self._to_uv_response_with_count(uv, rec, counts.get(uv.id, 0)) for uv, rec in pairs
+        ]
 
     async def list_profile_vaccinations_with_doses(
-        self, profile_id: UUID, user_id: UUID
+        self,
+        profile_id: UUID,
+        user_id: UUID,
+        *,
+        skip_access_check: bool = False,
     ) -> list[UserVaccinationWithDosesResponse]:
-        await self._access.require_medical_profile_view(profile_id, user_id)
+        if not skip_access_check:
+            await self._access.require_medical_profile_view(profile_id, user_id)
         pairs = await self._vac.list_user_vaccinations_for_profile(profile_id)
+        if not pairs:
+            return []
         today = date.today()
+        uv_ids = [uv.id for uv, _ in pairs]
+        counts = await self._vac.count_administered_doses_for_uv_ids(uv_ids)
+        doses_by_uv = await self._vac.list_doses_for_user_vaccination_ids(uv_ids)
         out: list[UserVaccinationWithDosesResponse] = []
         for uv, rec in pairs:
-            base = await self._to_uv_response(uv, rec)
-            dose_rows = await self._vac.list_doses(uv.id)
+            base = self._to_uv_response_with_count(uv, rec, counts.get(uv.id, 0))
+            dose_rows = doses_by_uv.get(uv.id, [])
             doses = [self._to_dose_response(d, today) for d in dose_rows]
             out.append(UserVaccinationWithDosesResponse(**{**base.model_dump(), "doses": doses}))
         return out

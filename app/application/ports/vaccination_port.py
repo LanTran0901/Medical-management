@@ -52,7 +52,19 @@ class VaccinationRepositoryPort:
     async def count_administered_doses(self, user_vaccination_id: UUID) -> int:
         raise NotImplementedError
 
+    async def count_administered_doses_for_uv_ids(
+        self, user_vaccination_ids: list[UUID]
+    ) -> dict[UUID, int]:
+        """Batch count administered doses per subscription (GET /users/me optimization)."""
+        raise NotImplementedError
+
     async def list_doses(self, user_vaccination_id: UUID) -> list[VaccinationDose]:
+        raise NotImplementedError
+
+    async def list_doses_for_user_vaccination_ids(
+        self, user_vaccination_ids: list[UUID]
+    ) -> dict[UUID, list[VaccinationDose]]:
+        """All doses for many subscriptions in one query (GET /users/me optimization)."""
         raise NotImplementedError
 
     async def get_dose_by_id(self, dose_id: UUID) -> VaccinationDose | None:
