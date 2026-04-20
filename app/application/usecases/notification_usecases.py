@@ -108,7 +108,7 @@ class ListNotificationsUseCase:
         self.session = session
 
     async def execute(self, user_id: UUID) -> NotificationsListResponse:
-        query = text(
+        medicine_query = text(
             """
             SELECT
                 s.id AS schedule_id,
@@ -157,8 +157,40 @@ class ListNotificationsUseCase:
             """
         )
 
-        result = await self.session.execute(query, {"user_id": user_id})
+        appt_query = text(
+            """
+            SELECT
+                ar.id AS reminder_id,
+                CASE
+                    WHEN ar.type::text = 'vaccine' THEN 'VACCINE'
+                    ELSE 'CHECKUP'
+                END AS category,
+                ar.status::text AS reminder_status,
+                ar.title AS title,
+                ar.hospital_name AS hospital_name,
+                ar.vaccine_name AS vaccine_name,
+                ar.appointment_at AS appointment_at,
+                p.id AS profile_id,
+                p.full_name AS profile_name,
+                f.family_name AS family_name
+            FROM appointment_reminders ar
+            JOIN profiles p ON p.id = ar.profile_id
+            LEFT JOIN LATERAL (
+                SELECT fam.family_name
+                FROM family_memberships fm
+                JOIN families fam ON fam.id = fm.family_id
+                WHERE fm.profile_id = p.id
+                ORDER BY fm.created_at ASC
+                LIMIT 1
+            ) f ON TRUE
+            WHERE p.owner_user_id = :user_id OR p.linked_user_id = :user_id
+            ORDER BY ar.appointment_at ASC
+            """
+        )
+
+        result = await self.session.execute(medicine_query, {"user_id": user_id})
         rows = result.mappings().all()
+        appt_rows = (await self.session.execute(appt_query, {"user_id": user_id})).mappings().all()
 
         today = datetime.now(timezone.utc).date()
         items: list[NotificationListItem] = []
@@ -209,4 +241,47 @@ class ListNotificationsUseCase:
                 )
             )
 
+        for row in appt_rows:
+            appointment_at = row.get("appointment_at")
+            remind_time_str = (
+                appointment_at.astimezone(timezone.utc).strftime("%H:%M")
+                if appointment_at is not None
+                else None
+            )
+            reminder_status = str(row.get("reminder_status") or "pending").upper()
+            status_compat = (
+                "COMPLETED"
+                if reminder_status == "DONE"
+                else "PAUSED"
+                if reminder_status == "MISSED"
+                else "PENDING"
+            )
+            body = row.get("vaccine_name") or row.get("hospital_name")
+            items.append(
+                NotificationListItem(
+                    id=row["reminder_id"],
+                    schedule_id=None,
+                    category=row.get("category") or "CHECKUP",
+                    status=status_compat,
+                    lifecycle_status=reminder_status,
+                    occurrence_status=None,
+                    title=row.get("title") or "Nhac lich kham",
+                    body=body,
+                    remind_time=remind_time_str,
+                    scheduled_at=appointment_at,
+                    snoozed_until=None,
+                    medicine_name=None,
+                    dosage_per_time=None,
+                    profile_id=row["profile_id"],
+                    profile_name=row.get("profile_name"),
+                    family_name=row.get("family_name"),
+                )
+            )
+
+        items.sort(
+            key=lambda item: (
+                item.scheduled_at or datetime.min.replace(tzinfo=timezone.utc),
+                item.remind_time or "",
+            )
+        )
         return NotificationsListResponse(items=items)

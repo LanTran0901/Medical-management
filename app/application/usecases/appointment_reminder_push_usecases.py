@@ -87,6 +87,7 @@ class ProcessDueAppointmentReminderPushesUseCase:
 
     async def execute(self) -> ScheduleDispatchResponse:
         channel = settings.fcm_android_channel_schedule
+        grace_minutes = settings.schedule_dispatch_due_grace_minutes
         now = datetime.now(timezone.utc)
         current_bucket = now.replace(second=0, microsecond=0)
 
@@ -97,6 +98,7 @@ class ProcessDueAppointmentReminderPushesUseCase:
                 ar.type::text AS reminder_type,
                 ar.title AS title,
                 ar.appointment_at AS appointment_at,
+                ar.reminder_enabled AS reminder_enabled,
                 ar.remind_before_value AS remind_before_value,
                 ar.remind_before_unit::text AS remind_before_unit,
                 ar.vaccine_name AS vaccine_name,
@@ -106,6 +108,7 @@ class ProcessDueAppointmentReminderPushesUseCase:
             FROM appointment_reminders ar
             JOIN profiles p ON p.id = ar.profile_id
             WHERE ar.status = 'pending'
+              AND ar.reminder_enabled IS TRUE
             """
         )
         rows = (await self.session.execute(q)).mappings().all()
@@ -130,7 +133,8 @@ class ProcessDueAppointmentReminderPushesUseCase:
             ) or 60
             remind_at = appt_at - timedelta(minutes=before)
             fire_bucket = remind_at.replace(second=0, microsecond=0)
-            if fire_bucket != current_bucket:
+            lag_minutes = int((current_bucket - fire_bucket).total_seconds() // 60)
+            if lag_minutes < 0 or lag_minutes > grace_minutes:
                 continue
 
             processed += 1

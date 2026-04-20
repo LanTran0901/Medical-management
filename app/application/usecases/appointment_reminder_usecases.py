@@ -31,8 +31,17 @@ class AppointmentReminderService:
             hospital_name=row.get("hospital_name"),
             department=row.get("department"),
             appointment_at=row["appointment_at"],
-            remind_before_value=int(row["remind_before_value"]),
-            remind_before_unit=RemindBeforeUnit(str(row["remind_before_unit"]).upper()),
+            reminder_enabled=bool(row.get("reminder_enabled", True)),
+            remind_before_value=(
+                int(row["remind_before_value"])
+                if row.get("remind_before_value") is not None
+                else None
+            ),
+            remind_before_unit=(
+                RemindBeforeUnit(str(row["remind_before_unit"]).upper())
+                if row.get("remind_before_unit") is not None
+                else None
+            ),
             vaccine_name=row.get("vaccine_name"),
             dose_number=row.get("dose_number"),
             total_doses=row.get("total_doses"),
@@ -41,6 +50,25 @@ class AppointmentReminderService:
             follow_up_appointment_id=row.get("follow_up_appointment_id"),
             vaccination_dose_id=row.get("vaccination_dose_id"),
         )
+
+    @staticmethod
+    def _normalize_reminder(
+        reminder_enabled: bool,
+        remind_before_value: int | None,
+        remind_before_unit: str | None,
+    ) -> tuple[bool, int | None, str | None]:
+        if not reminder_enabled:
+            return False, None, None
+
+        value = remind_before_value
+        unit = remind_before_unit
+        if value is None and unit is None:
+            return True, 60, RemindBeforeUnit.MINUTES.value
+        if value is None:
+            value = 60
+        if unit is None:
+            unit = RemindBeforeUnit.MINUTES.value
+        return True, value, unit
 
     async def list_for_profile(
         self, profile_id: UUID, user_id: UUID
@@ -51,7 +79,8 @@ class AppointmentReminderService:
                 """
                 SELECT
                     id, profile_id, type::text AS type, title, hospital_name, department,
-                    appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                    appointment_at, reminder_enabled,
+                    remind_before_value, remind_before_unit::text AS remind_before_unit,
                     vaccine_name, dose_number, total_doses,
                     status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                 FROM appointment_reminders
@@ -75,20 +104,26 @@ class AppointmentReminderService:
         at = body.appointment_at
         if at.tzinfo is None:
             at = at.replace(tzinfo=timezone.utc)
+        reminder_enabled, remind_before_value, remind_before_unit = self._normalize_reminder(
+            body.reminder_enabled,
+            body.remind_before_value,
+            body.remind_before_unit.value if body.remind_before_unit else None,
+        )
 
         await self._session.execute(
             text(
                 """
                 INSERT INTO appointment_reminders (
                     id, profile_id, type, title, hospital_name, department,
-                    appointment_at, remind_before_value, remind_before_unit,
+                    appointment_at, reminder_enabled, remind_before_value, remind_before_unit,
                     vaccine_name, dose_number, total_doses,
                     status, note, follow_up_appointment_id, vaccination_dose_id
                 )
                 VALUES (
                     :id, :profile_id, CAST(:rtype AS appointment_reminder_type), :title,
                     :hospital_name, :department, :appointment_at,
-                    :remind_before_value, CAST(:remind_before_unit AS follow_up_remind_before_unit),
+                    :reminder_enabled, :remind_before_value,
+                    CAST(:remind_before_unit AS follow_up_remind_before_unit),
                     :vaccine_name, :dose_number, :total_doses,
                     'pending'::appointment_reminder_status, :note,
                     :follow_up_appointment_id, :vaccination_dose_id
@@ -103,8 +138,9 @@ class AppointmentReminderService:
                 "hospital_name": body.hospital_name,
                 "department": body.department,
                 "appointment_at": at,
-                "remind_before_value": body.remind_before_value,
-                "remind_before_unit": body.remind_before_unit.value,
+                "reminder_enabled": reminder_enabled,
+                "remind_before_value": remind_before_value,
+                "remind_before_unit": remind_before_unit,
                 "vaccine_name": body.vaccine_name,
                 "dose_number": body.dose_number,
                 "total_doses": body.total_doses,
@@ -120,7 +156,8 @@ class AppointmentReminderService:
                     """
                     SELECT
                         id, profile_id, type::text AS type, title, hospital_name, department,
-                        appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                        appointment_at, reminder_enabled,
+                        remind_before_value, remind_before_unit::text AS remind_before_unit,
                         vaccine_name, dose_number, total_doses,
                         status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                     FROM appointment_reminders WHERE id = :id
@@ -140,6 +177,7 @@ class AppointmentReminderService:
                 SELECT
                     ar.id, ar.profile_id, ar.type::text AS type, ar.title, ar.hospital_name,
                     ar.department, ar.appointment_at,
+                    ar.reminder_enabled,
                     ar.remind_before_value, ar.remind_before_unit::text AS remind_before_unit,
                     ar.vaccine_name, ar.dose_number, ar.total_doses,
                     ar.status::text AS status, ar.note,
@@ -168,6 +206,7 @@ class AppointmentReminderService:
 
         sets: list[str] = []
         params: dict = {"rid": reminder_id}
+        body_fields = body.model_fields_set
 
         if body.title is not None:
             sets.append("title = :title")
@@ -178,12 +217,28 @@ class AppointmentReminderService:
                 at = at.replace(tzinfo=timezone.utc)
             sets.append("appointment_at = :appointment_at")
             params["appointment_at"] = at
-        if body.remind_before_value is not None:
+        if (
+            "reminder_enabled" in body_fields
+            or "remind_before_value" in body_fields
+            or "remind_before_unit" in body_fields
+        ):
+            reminder_enabled, remind_before_value, remind_before_unit = self._normalize_reminder(
+                body.reminder_enabled
+                if "reminder_enabled" in body_fields
+                else bool(row.get("reminder_enabled", True)),
+                body.remind_before_value
+                if "remind_before_value" in body_fields
+                else row.get("remind_before_value"),
+                body.remind_before_unit.value
+                if "remind_before_unit" in body_fields and body.remind_before_unit is not None
+                else row.get("remind_before_unit"),
+            )
+            sets.append("reminder_enabled = :reminder_enabled")
+            params["reminder_enabled"] = reminder_enabled
             sets.append("remind_before_value = :rbv")
-            params["rbv"] = body.remind_before_value
-        if body.remind_before_unit is not None:
+            params["rbv"] = remind_before_value
             sets.append("remind_before_unit = CAST(:rbu AS follow_up_remind_before_unit)")
-            params["rbu"] = body.remind_before_unit.value
+            params["rbu"] = remind_before_unit
         if body.hospital_name is not None:
             sets.append("hospital_name = :hospital_name")
             params["hospital_name"] = body.hospital_name
@@ -202,6 +257,9 @@ class AppointmentReminderService:
         if body.note is not None:
             sets.append("note = :note")
             params["note"] = body.note
+        if "vaccination_dose_id" in body_fields:
+            sets.append("vaccination_dose_id = :vaccination_dose_id")
+            params["vaccination_dose_id"] = body.vaccination_dose_id
         if body.status is not None:
             sets.append("status = CAST(:st AS appointment_reminder_status)")
             params["st"] = body.status
@@ -221,7 +279,8 @@ class AppointmentReminderService:
                     """
                     SELECT
                         id, profile_id, type::text AS type, title, hospital_name, department,
-                        appointment_at, remind_before_value, remind_before_unit::text AS remind_before_unit,
+                        appointment_at, reminder_enabled,
+                        remind_before_value, remind_before_unit::text AS remind_before_unit,
                         vaccine_name, dose_number, total_doses,
                         status::text AS status, note, follow_up_appointment_id, vaccination_dose_id
                     FROM appointment_reminders WHERE id = :rid

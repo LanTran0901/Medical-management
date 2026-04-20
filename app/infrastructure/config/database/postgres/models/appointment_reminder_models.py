@@ -59,11 +59,18 @@ class AppointmentReminderModel(Base):
         nullable=False,
         index=True,
     )
-    remind_before_value: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("60"))
-    remind_before_unit: Mapped[str] = mapped_column(
-        appointment_remind_before_unit_pg,
+    reminder_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean,
         nullable=False,
-        server_default=sa.text("'MINUTES'::follow_up_remind_before_unit"),
+        server_default=sa.text("true"),
+    )
+    remind_before_value: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+    )
+    remind_before_unit: Mapped[str | None] = mapped_column(
+        appointment_remind_before_unit_pg,
+        nullable=True,
     )
     vaccine_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     dose_number: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
@@ -111,7 +118,9 @@ class AppointmentReminderModel(Base):
             name="ck_appointment_reminders_dose_is_vaccine",
         ),
         sa.CheckConstraint(
-            "remind_before_value > 0",
-            name="ck_appointment_reminders_remind_before_value_positive",
+            "(NOT reminder_enabled AND remind_before_value IS NULL AND remind_before_unit IS NULL) OR "
+            "(reminder_enabled AND remind_before_value IS NOT NULL AND remind_before_unit IS NOT NULL "
+            "AND remind_before_value > 0)",
+            name="ck_appointment_reminders_reminder_offset",
         ),
     )

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.api.health_router import router as health_router
 from app.api.user_router import router as user_router
@@ -47,6 +48,23 @@ def _should_run_schedule_dispatch() -> bool:
     return False
 
 
+def _is_transient_db_disconnect(exc: Exception) -> bool:
+    if isinstance(exc, DBAPIError):
+        if exc.connection_invalidated:
+            return True
+        origin = exc.orig
+        if origin is not None:
+            msg = str(origin).lower()
+            if (
+                "connection was closed in the middle of operation" in msg
+                or "connection does not exist" in msg
+                or "server closed the connection unexpectedly" in msg
+            ):
+                return True
+    msg = str(exc).lower()
+    return "connection was closed in the middle of operation" in msg
+
+
 async def _schedule_dispatch_loop() -> None:
     """Background poll for due MEDICINE schedules + appointment reminders; push via FCM/Expo."""
     from app.application.usecases.appointment_reminder_push_usecases import (
@@ -65,23 +83,39 @@ async def _schedule_dispatch_loop() -> None:
             continue
         if not settings.firebase_credentials_path and not settings.expo_push_enabled:
             continue
-        try:
-            async with AsyncSessionLocal() as session:
-                try:
-                    push = HybridNotificationService()
-                    med = ProcessDueSchedulePushesUseCase(session, push)
-                    appt = ProcessDueAppointmentReminderPushesUseCase(session, push)
-                    r1 = await med.execute()
-                    r2 = await appt.execute()
-                    await session.commit()
-                    logger.info("Schedule dispatch: med=%s appt=%s", r1, r2)
-                except Exception:
-                    await session.rollback()
-                    raise
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Schedule dispatch iteration failed")
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    try:
+                        push = HybridNotificationService()
+                        med = ProcessDueSchedulePushesUseCase(session, push)
+                        appt = ProcessDueAppointmentReminderPushesUseCase(session, push)
+                        r1 = await med.execute()
+                        r2 = await appt.execute()
+                        await session.commit()
+                        logger.info("Schedule dispatch: med=%s appt=%s", r1, r2)
+                    except Exception:
+                        try:
+                            await session.rollback()
+                        except Exception:
+                            logger.exception("Schedule dispatch rollback failed")
+                        raise
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                is_retryable = _is_transient_db_disconnect(exc) and attempt < attempts
+                if is_retryable:
+                    logger.warning(
+                        "Schedule dispatch hit transient DB disconnect (attempt %s/%s); retrying.",
+                        attempt,
+                        attempts,
+                    )
+                    await asyncio.sleep(1)
+                    continue
+                logger.exception("Schedule dispatch iteration failed")
+                break
 
 
 @asynccontextmanager
