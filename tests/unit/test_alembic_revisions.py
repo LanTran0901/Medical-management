@@ -15,7 +15,7 @@ def _load_script_directory() -> ScriptDirectory:
 
 def test_alembic_has_single_head() -> None:
     script = _load_script_directory()
-    assert script.get_heads() == ["20260417_1400"]
+    assert script.get_heads() == ["20260420_0900"]
 
 
 def test_alembic_revision_ids_are_unique() -> None:

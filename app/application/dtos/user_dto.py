@@ -62,8 +62,9 @@ class AppointmentReminderResponse(BaseModel):
     hospital_name: str | None
     department: str | None
     appointment_at: datetime
-    remind_before_value: int
-    remind_before_unit: RemindBeforeUnit
+    reminder_enabled: bool
+    remind_before_value: int | None
+    remind_before_unit: RemindBeforeUnit | None
     vaccine_name: str | None
     dose_number: int | None
     total_doses: int | None
@@ -84,8 +85,13 @@ class AppointmentReminderResponse(BaseModel):
             hospital_name=row.hospital_name,
             department=row.department,
             appointment_at=row.appointment_at,
+            reminder_enabled=row.reminder_enabled,
             remind_before_value=row.remind_before_value,
-            remind_before_unit=RemindBeforeUnit(str(row.remind_before_unit).upper()),
+            remind_before_unit=(
+                RemindBeforeUnit(str(row.remind_before_unit).upper())
+                if row.remind_before_unit
+                else None
+            ),
             vaccine_name=row.vaccine_name,
             dose_number=row.dose_number,
             total_doses=row.total_doses,

@@ -14,8 +14,9 @@ class AppointmentReminder:
     hospital_name: str | None
     department: str | None
     appointment_at: datetime
-    remind_before_value: int
-    remind_before_unit: str
+    reminder_enabled: bool
+    remind_before_value: int | None
+    remind_before_unit: str | None
     vaccine_name: str | None
     dose_number: int | None
     total_doses: int | None
