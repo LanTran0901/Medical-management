@@ -91,6 +91,24 @@ def test_users_me_returns_current_user(client) -> None:
     assert me.get("health_profile") is None
 
 
+def test_patch_users_me_updates_phone_number_for_authenticated_user(client) -> None:
+    suf = register_user(client)
+    token = login_access_token(client, suf)
+    new_phone = unique_phone()
+
+    patched = client.patch(
+        "/users/me",
+        json={"phone_number": new_phone},
+        headers=auth_headers(token),
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["phone_number"] == new_phone
+
+    me = client.get("/users/me", headers=auth_headers(token))
+    assert me.status_code == 200, me.text
+    assert me.json()["user"]["phone_number"] == new_phone
+
+
 def test_users_me_summary_lightweight_no_profiles(client) -> None:
     suf = register_user(client)
     token = login_access_token(client, suf)

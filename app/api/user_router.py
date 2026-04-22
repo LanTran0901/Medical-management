@@ -234,20 +234,21 @@ async def get_current_user_profile(
     )
 
 
-@router.patch("/me", response_model=UserResponse, summary="Update current user (e.g. phone_number)")
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Update current user (e.g. phone_number)",
+    description="Uses the authenticated Bearer access token to resolve the user; no user_id or request object is required.",
+)
 async def patch_current_user_me(
     body: PatchUserMeRequest,
     current_user: User = Depends(get_current_user),
     repository: UserRepositoryPG = Depends(get_user_repository),
 ) -> UserResponse:
-    try:
-        user = await GetUserUseCase(repository).execute(current_user.id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     patch = body.model_dump(exclude_unset=True)
     if "phone_number" in patch:
-        user.phone_number = patch["phone_number"]
-    updated = await repository.update(user)
+        current_user.phone_number = patch["phone_number"]
+    updated = await repository.update(current_user)
     return UserResponse.from_entity(updated)
 
 
