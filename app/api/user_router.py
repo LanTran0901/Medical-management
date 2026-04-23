@@ -237,7 +237,7 @@ async def get_current_user_profile(
 @router.patch(
     "/me",
     response_model=UserResponse,
-    summary="Update current user (e.g. phone_number)",
+    summary="Update current user (e.g. email, phone_number)",
     description="Uses the authenticated Bearer access token to resolve the user; no user_id or request object is required.",
 )
 async def patch_current_user_me(
@@ -246,9 +246,26 @@ async def patch_current_user_me(
     repository: UserRepositoryPG = Depends(get_user_repository),
 ) -> UserResponse:
     patch = body.model_dump(exclude_unset=True)
+    if "email" in patch:
+        email = patch["email"].lower().strip() if patch["email"] else ""
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="email must not be empty",
+            )
+        existing_user = await repository.get_by_email(email)
+        if existing_user is not None and existing_user.id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User with this email already exists.")
+        current_user.email = email
     if "phone_number" in patch:
         current_user.phone_number = patch["phone_number"]
-    updated = await repository.update(current_user)
+    try:
+        updated = await repository.update(current_user)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User update conflicts with existing data.",
+        ) from exc
     return UserResponse.from_entity(updated)
 
 

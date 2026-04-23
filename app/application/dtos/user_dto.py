@@ -27,6 +27,7 @@ class UpdateUserRequest(BaseModel):
 class PatchUserMeRequest(BaseModel):
     """PATCH /users/me — scoped fields for the authenticated user."""
 
+    email: str | None = Field(default=None, max_length=255)
     phone_number: str | None = Field(default=None, max_length=64)
 
 

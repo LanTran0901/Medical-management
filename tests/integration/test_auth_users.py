@@ -109,6 +109,37 @@ def test_patch_users_me_updates_phone_number_for_authenticated_user(client) -> N
     assert me.json()["user"]["phone_number"] == new_phone
 
 
+def test_patch_users_me_updates_email_for_authenticated_user(client) -> None:
+    suf = register_user(client)
+    token = login_access_token(client, suf)
+    new_email = f"updated{suf}@test.local"
+
+    patched = client.patch(
+        "/users/me",
+        json={"email": new_email},
+        headers=auth_headers(token),
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["email"] == new_email
+
+    me = client.get("/users/me", headers=auth_headers(token))
+    assert me.status_code == 200, me.text
+    assert me.json()["user"]["email"] == new_email
+
+
+def test_patch_users_me_rejects_duplicate_email(client) -> None:
+    first_suf = register_user(client)
+    second_suf = register_user(client)
+    token = login_access_token(client, first_suf)
+
+    patched = client.patch(
+        "/users/me",
+        json={"email": f"u{second_suf}@test.local"},
+        headers=auth_headers(token),
+    )
+    assert patched.status_code == 409, patched.text
+
+
 def test_users_me_summary_lightweight_no_profiles(client) -> None:
     suf = register_user(client)
     token = login_access_token(client, suf)
