@@ -130,6 +130,21 @@ class FamiliesService:
         body: CreateFamilyRequest,
     ) -> tuple[Family, Profile, FamilyMembership]:
         exp = _utc_now() + timedelta(seconds=app_settings.family_public_invite_ttl_seconds)
+        linked_profiles = await self.list_my_linked_profiles(user_id, profile_scope="all")
+        owner_profile = next(
+            (profile for profile in linked_profiles if profile.status == ProfileStatus.ACTIVE.value),
+            linked_profiles[0] if linked_profiles else None,
+        )
+        if owner_profile is not None:
+            family, membership = await self._repo.create_family_with_existing_owner_profile(
+                family_name=body.name,
+                address=body.address,
+                avatar_url=body.avatar_url,
+                creator_user_id=user_id,
+                owner_profile_id=owner_profile.id,
+                public_invite_expires_at=exp,
+            )
+            return family, owner_profile, membership
         return await self._repo.create_family_with_owner_profile(
             family_name=body.name,
             address=body.address,

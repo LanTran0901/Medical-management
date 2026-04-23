@@ -115,6 +115,19 @@ class FamilyRepositoryPort(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def create_family_with_existing_owner_profile(
+        self,
+        *,
+        family_name: str,
+        address: str | None,
+        avatar_url: str | None,
+        creator_user_id: UUID,
+        owner_profile_id: UUID,
+        public_invite_expires_at: datetime,
+    ) -> tuple[Family, FamilyMembership]:
+        raise NotImplementedError
+
+    @abstractmethod
     async def find_personal_profile_for_user(self, user_id: UUID) -> Profile | None:
         raise NotImplementedError
 

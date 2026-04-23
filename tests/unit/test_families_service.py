@@ -197,6 +197,23 @@ async def test_create_family_delegates(repo: AsyncMock, svc: FamiliesService) ->
 
 
 @pytest.mark.asyncio
+async def test_create_family_reuses_existing_active_profile(repo: AsyncMock, svc: FamiliesService) -> None:
+    uid = uuid4()
+    fam = _family()
+    active_profile = _profile(owner=uid, linked=uid, status="ACTIVE")
+    old_profile = _profile(owner=uid, linked=uid, status="INACTIVE")
+    mem = _mem(role=FamilyRole.OWNER, pid=active_profile.id, fid=fam.id, uid=uid)
+    repo.list_linked_profiles_for_user = AsyncMock(return_value=[active_profile, old_profile])
+    repo.create_family_with_existing_owner_profile = AsyncMock(return_value=(fam, mem))
+
+    out = await svc.create_family(uid, CreateFamilyRequest(family_name="A", full_name="Me"))
+
+    assert out == (fam, active_profile, mem)
+    repo.create_family_with_existing_owner_profile.assert_awaited_once()
+    repo.create_family_with_owner_profile.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_get_family_raises_when_family_missing(repo: AsyncMock, svc: FamiliesService) -> None:
     fid, uid = uuid4(), uuid4()
     repo.get_user_membership_in_family = AsyncMock(return_value=_mem(fid=fid, role=FamilyRole.MEMBER))

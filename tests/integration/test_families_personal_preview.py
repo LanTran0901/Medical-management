@@ -80,6 +80,36 @@ def test_sc004_multi_profile_join_requires_profile_id_and_uses_selected_profile(
     assert all(row["id"] != second_profile_id for row in list_profiles.json())
 
 
+def test_create_family_reuses_current_profile_without_creating_new_one(client) -> None:
+    suffix = register_user(client)
+    token = login_access_token(client, suffix)
+
+    created_profile = client.post(
+        "/users/me/personal-profile",
+        json={"full_name": "Primary Profile"},
+        headers=auth_headers(token),
+    )
+    assert created_profile.status_code == 201, created_profile.text
+    profile_id = created_profile.json()["id"]
+
+    created_family = client.post(
+        "/families",
+        json={"family_name": "Reuse Existing Profile", "full_name": "Ignored fallback name"},
+        headers=auth_headers(token),
+    )
+    assert created_family.status_code == 201, created_family.text
+
+    members = created_family.json().get("members", [])
+    assert members, created_family.text
+    assert members[0]["profile"]["id"] == profile_id
+
+    linked_profiles = client.get("/users/me/profiles?profile_scope=all", headers=auth_headers(token))
+    assert linked_profiles.status_code == 200, linked_profiles.text
+    ids = [row["id"] for row in linked_profiles.json()]
+    assert ids.count(profile_id) == 1
+    assert len(ids) == 1
+
+
 def test_invite_preview_valid_and_invalid(client) -> None:
     owner_suffix = register_user(client)
     owner_token = login_access_token(client, owner_suffix)

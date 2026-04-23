@@ -426,22 +426,12 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         creator_full_name: str,
         public_invite_expires_at: datetime,
     ) -> tuple[Family, Profile, FamilyMembership]:
-        invite = await self._generate_unique_invite_code()
-        fam = FamilyModel(
-            family_name=family_name.strip(),
+        fam, _ = await self._create_family_row_with_invite(
+            family_name=family_name,
             address=address,
             avatar_url=avatar_url,
-            invite_code=invite,
-            created_by=creator_user_id,
-        )
-        self.session.add(fam)
-        await self.session.flush()
-
-        await self.create_pending_public_invite(
-            family_id=fam.id,
-            invite_code=invite,
-            expires_at=public_invite_expires_at,
-            created_by=creator_user_id,
+            creator_user_id=creator_user_id,
+            public_invite_expires_at=public_invite_expires_at,
         )
 
         prof = ProfileModel(
@@ -465,6 +455,71 @@ class FamilyRepositoryPG(FamilyRepositoryPort):
         await self.session.refresh(prof)
         await self.session.refresh(mem)
         return self._to_family(fam), self._to_profile(prof), self._to_membership(mem)
+
+    async def create_family_with_existing_owner_profile(
+        self,
+        *,
+        family_name: str,
+        address: str | None,
+        avatar_url: str | None,
+        creator_user_id: UUID,
+        owner_profile_id: UUID,
+        public_invite_expires_at: datetime,
+    ) -> tuple[Family, FamilyMembership]:
+        prof = await self.session.get(ProfileModel, owner_profile_id)
+        if prof is None or prof.deleted_at is not None:
+            raise ValueError("owner_profile_id not found")
+        if prof.owner_user_id != creator_user_id and prof.linked_user_id != creator_user_id:
+            raise ValueError("owner_profile_id does not belong to creator")
+
+        fam, _ = await self._create_family_row_with_invite(
+            family_name=family_name,
+            address=address,
+            avatar_url=avatar_url,
+            creator_user_id=creator_user_id,
+            public_invite_expires_at=public_invite_expires_at,
+        )
+
+        mem = FamilyMembershipModel(
+            family_id=fam.id,
+            profile_id=prof.id,
+            role=FamilyRole.OWNER.value,
+            relation_role=None,
+            added_by=creator_user_id,
+        )
+        self.session.add(mem)
+        await self.session.flush()
+        await self.session.refresh(fam)
+        await self.session.refresh(mem)
+        return self._to_family(fam), self._to_membership(mem)
+
+    async def _create_family_row_with_invite(
+        self,
+        *,
+        family_name: str,
+        address: str | None,
+        avatar_url: str | None,
+        creator_user_id: UUID,
+        public_invite_expires_at: datetime,
+    ) -> tuple[FamilyModel, str]:
+        invite = await self._generate_unique_invite_code()
+        fam = FamilyModel(
+            family_name=family_name.strip(),
+            address=address,
+            avatar_url=avatar_url,
+            invite_code=invite,
+            created_by=creator_user_id,
+        )
+        self.session.add(fam)
+        await self.session.flush()
+
+        await self.create_pending_public_invite(
+            family_id=fam.id,
+            invite_code=invite,
+            expires_at=public_invite_expires_at,
+            created_by=creator_user_id,
+        )
+        return fam, invite
 
     async def find_personal_profile_for_user(self, user_id: UUID) -> Profile | None:
         stmt = (
