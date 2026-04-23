@@ -325,11 +325,8 @@ class FamiliesService:
 
         target_user_id = user.id if user is not None else body.user_id
         if user is not None:
-            existing_profile = await self._repo.find_personal_profile_for_user(user.id)
             if await self._repo.get_user_membership_in_family(fam.id, user.id) is not None:
                 raise ConflictError("User is already a member of this family")
-            if existing_profile is None and (not body.full_name or not str(body.full_name).strip()):
-                raise ValueError("full_name is required when you have no personal profile yet")
 
         pending = await self._repo.find_pending_invite(
             family_id=fam.id,
